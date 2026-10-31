@@ -95,7 +95,7 @@ class MainActivity : Activity() {
             val button = Button(this).apply {
                 text = label; textSize = 8f; setTextColor(Color.WHITE)
                 isAllCaps = false
-                background = rounded(if (label == "HOME") Color.rgb(27, 48, 82) else panel, 12)
+                background = gradient(if (label == "HOME") Color.rgb(35, 83, 150) else Color.rgb(24, 36, 58), Color.rgb(12, 20, 35), 12)
                 elevation = dp(3).toFloat()
                 setOnClickListener {
                     when (label) {
@@ -131,7 +131,7 @@ class MainActivity : Activity() {
     private fun card(title: String, body: String) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(panel, 18, Color.rgb(37, 58, 91))
+            background = gradient(Color.rgb(25, 39, 65), Color.rgb(13, 21, 37), 18, Color.rgb(48, 78, 121))
             setPadding(dp(17), dp(16), dp(17), dp(16))
             elevation = dp(2).toFloat()
         }
@@ -152,7 +152,7 @@ class MainActivity : Activity() {
             text = label; textSize = 13f; setTextColor(Color.WHITE)
             isAllCaps = false
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
-            background = rounded(accent, 13)
+            background = gradient(Color.rgb(83, 161, 255), Color.rgb(38, 105, 218), 13)
             elevation = dp(4).toFloat()
             setPadding(dp(10), 0, dp(10), 0)
             setOnClickListener { onClick() }
@@ -419,6 +419,12 @@ class MainActivity : Activity() {
         reset(section, "This section is reserved in the ATHENA roadmap.")
         card("COMING IN A LATER BUILD", "The offline AI model, grounded professor chat, exam tools and voice service still need to be integrated and tested.")
     }
+
+    private fun gradient(top: Int, bottom: Int, radiusDp: Int, stroke: Int? = null): GradientDrawable =
+        GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(top, bottom)).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            if (stroke != null) setStroke(dp(1), stroke)
+        }
 
     private fun rounded(fill: Int, radiusDp: Int, stroke: Int? = null): GradientDrawable =
         GradientDrawable().apply {
