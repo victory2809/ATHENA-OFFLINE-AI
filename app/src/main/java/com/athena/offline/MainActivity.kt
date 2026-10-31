@@ -791,7 +791,8 @@ class MainActivity : Activity() {
                 val evidence = retrieveStudyContext(profile, question)
                 val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
                     else evidence.joinToString("\\n\\n")
-                val prompt = "<|im_start|>system\\nYou are ATHENA, a careful student study tutor. Explain clearly and simply. Do not invent facts or citations. Use the provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If the excerpts do not contain the answer, say that clearly.\\n\\nSTUDY EXCERPTS:\\n$contextText<|im_end|>\\n<|im_start|>user\\n$question<|im_end|>\\n<|im_start|>assistant\\n"
+                val historyText = chatHistory.takeLast(4).joinToString("\n") { "User: ${it.first}\nATHENA: ${it.second}" }
+                val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Explain clearly and simply. Do not invent facts or citations. Use the provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If the excerpts do not contain the answer, say that clearly.\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
                 reset("ATHENA is thinking…", "Running the model locally on your phone. No question is sent to a cloud AI service.")
                 Thread {
                     try {
