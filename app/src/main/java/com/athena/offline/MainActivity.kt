@@ -820,20 +820,20 @@ class MainActivity : Activity() {
                 }
                 val evidence = retrieveStudyContext(profile, question)
                 val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
-                    else evidence.joinToString("\n\n").take(1800)
+                    else evidence.joinToString("\n\n").take(700)
                 chatHistory.clear()
                 val savedHistory = try { JSONArray(prefs.getString(chatHistoryKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
                 for (i in 0 until savedHistory.length()) {
                     val turn = savedHistory.optJSONObject(i) ?: continue
                     chatHistory.add(turn.optString("q") to turn.optString("a"))
                 }
-                val historyText = chatHistory.takeLast(2).joinToString("\n") { "User: ${it.first}\nATHENA: ${it.second}" }
-                val learnerContext = prefs.getString("learner_personalization", "")?.take(2500).orEmpty()
+                val historyText = chatHistory.takeLast(1).joinToString("\n") { "User: ${it.first.take(180)}\nATHENA: ${it.second.take(180)}" }
+                val learnerContext = prefs.getString("learner_personalization", "")?.take(700).orEmpty()
                 val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Adapt your explanations to the learner profile below. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If excerpts do not support the answer, say so and separate general knowledge from notes. If unsure, admit it.\n\nLEARNER PROFILE:\n$learnerContext\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
                 reset("ATHENA is thinking…", "Running the model locally on your phone. No question is sent to a cloud AI service.")
                 Thread {
                     try {
-                        val answer = nativeEngine.nativeGenerate(prompt, 256)
+                        val answer = nativeEngine.nativeGenerate(prompt, 96)
                         chatHistory.add(question to answer)
                         val saved = JSONArray()
                         chatHistory.takeLast(8).forEach { turn -> saved.put(JSONObject().put("q", turn.first).put("a", turn.second)) }
