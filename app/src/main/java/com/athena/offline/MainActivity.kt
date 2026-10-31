@@ -14,7 +14,8 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.android.gms.tasks.Tasks
-import org.apache.pdfbox.rendering.PDFRenderer
+import android.graphics.pdf.PdfRenderer as AndroidPdfRenderer
+import android.os.ParcelFileDescriptor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -601,14 +602,18 @@ class MainActivity : Activity() {
 
     private fun extractPdfPagesWithOcr(file: File): List<String> {
         PDDocument.load(file).use { document ->
-            val renderer = PDFRenderer(document)
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = AndroidPdfRenderer(pfd)
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             val result = mutableListOf<String>()
             for (pageIndex in 0 until document.numberOfPages) {
                 val stripper = PDFTextStripper().apply { startPage = pageIndex + 1; endPage = pageIndex + 1 }
                 var text = stripper.getText(document).trim()
                 if (text.isBlank()) {
-                    val bitmap = renderer.renderImageWithDPI(pageIndex, 150f)
+                    val page = renderer.openPage(pageIndex)
+                    val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    page.render(bitmap, null, null, AndroidPdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
                     try {
                         val image = InputImage.fromBitmap(bitmap, 0)
                         text = Tasks.await(recognizer.process(image)).text
@@ -617,6 +622,8 @@ class MainActivity : Activity() {
                 result.add(text)
             }
             recognizer.close()
+            renderer.close()
+            pfd.close()
             return result
         }
     }
