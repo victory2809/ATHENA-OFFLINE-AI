@@ -77,11 +77,11 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
     g_model = llama_model_load_from_file(path.c_str(), mp);
     if (!g_model) return JNI_FALSE;
     auto cp = llama_context_default_params();
-    cp.n_ctx = 2048;
-    cp.n_batch = 256;
-    cp.n_ubatch = 128;
-    cp.n_threads = std::max(2, std::min(4, (int)sysconf(_SC_NPROCESSORS_ONLN) - 1));
-    cp.n_threads_batch = cp.n_threads;
+    cp.n_ctx = 1024;
+    cp.n_batch = 64;
+    cp.n_ubatch = 32;
+    cp.n_threads = 2;
+    cp.n_threads_batch = 2;
     g_ctx = llama_init_from_model(g_model, cp);
     if (!g_ctx) { llama_model_free(g_model); g_model = nullptr; return JNI_FALSE; }
     g_vocab = llama_model_get_vocab(g_model);
@@ -103,7 +103,7 @@ Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring
     }
     if (n <= 0) return from_utf8(env, "Could not tokenize the question.");
     const int context = (int)llama_n_ctx(g_ctx);
-    const int limit = std::max(1, std::min((int)maxTokens, 320));
+    const int limit = std::max(1, std::min((int)maxTokens, 96));
     if (n >= context - 8 || n + limit >= context) {
         return from_utf8(env, "This question and its notes are too long for the phone's local context. Please shorten the question or use fewer notes.");
     }
