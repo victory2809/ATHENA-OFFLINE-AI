@@ -3,14 +3,22 @@ package com.athena.offline
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.database.Cursor
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.security.MessageDigest
 
 class MainActivity : Activity() {
     private val backgroundColor = Color.rgb(8, 12, 22)
@@ -19,9 +27,11 @@ class MainActivity : Activity() {
     private lateinit var content: LinearLayout
     private val prefs by lazy { getSharedPreferences("athena_local", MODE_PRIVATE) }
     private val profiles = mutableListOf<String>()
+    private var importingInto: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PDFBoxResourceLoader.init(applicationContext)
         loadProfiles()
         buildShell()
         showHome()
@@ -40,6 +50,22 @@ class MainActivity : Activity() {
         prefs.edit().putString("profiles", array.toString()).apply()
     }
 
+    private fun profileDir(profile: String): File {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(profile.toByteArray()).joinToString("") { "%02x".format(it) }
+        return File(File(filesDir, "knowledge"), digest).apply { mkdirs() }
+    }
+
+    private fun docsKey(profile: String) = "documents_" + profile
+
+    private fun documents(profile: String): JSONArray =
+        try { JSONArray(prefs.getString(docsKey(profile), "[]") ?: "[]") }
+        catch (_: Exception) { JSONArray() }
+
+    private fun saveDocuments(profile: String, docs: JSONArray) {
+        prefs.edit().putString(docsKey(profile), docs.toString()).apply()
+    }
+
     private fun buildShell() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -48,10 +74,8 @@ class MainActivity : Activity() {
         }
         val header = TextView(this).apply {
             text = "ATHENA  /  OFFLINE STUDY INTELLIGENCE"
-            setTextColor(accent)
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.08f
+            setTextColor(accent); textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD; letterSpacing = 0.08f
         }
         root.addView(header)
         root.addView(View(this).apply { setBackgroundColor(Color.rgb(38, 54, 80)) },
@@ -60,15 +84,12 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(content) }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val nav = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
             setPadding(0, dp(8), 0, 0)
         }
         listOf("HOME", "PROFESSOR", "KNOWLEDGE", "EXAM", "STUDY").forEach { label ->
             val button = Button(this).apply {
-                text = label
-                textSize = 8f
-                setTextColor(Color.WHITE)
+                text = label; textSize = 8f; setTextColor(Color.WHITE)
                 setBackgroundTintList(android.content.res.ColorStateList.valueOf(panel))
                 setOnClickListener {
                     when (label) {
@@ -89,33 +110,25 @@ class MainActivity : Activity() {
     private fun reset(title: String, subtitle: String? = null) {
         content.removeAllViews()
         content.addView(TextView(this).apply {
-            text = title
-            textSize = 27f
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, dp(8), 0, dp(4))
+            text = title; textSize = 27f; setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, dp(4))
         })
         if (subtitle != null) content.addView(TextView(this).apply {
-            text = subtitle
-            textSize = 13f
-            setTextColor(Color.LTGRAY)
+            text = subtitle; textSize = 13f; setTextColor(Color.LTGRAY)
             setPadding(0, 0, 0, dp(16))
         })
     }
 
     private fun card(title: String, body: String) {
         val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(panel)
+            orientation = LinearLayout.VERTICAL; setBackgroundColor(panel)
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }
         box.addView(TextView(this).apply {
-            text = title; textSize = 16f; setTextColor(accent)
-            typeface = Typeface.DEFAULT_BOLD
+            text = title; textSize = 16f; setTextColor(accent); typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = body; textSize = 13f; setTextColor(Color.LTGRAY)
-            setPadding(0, dp(7), 0, 0)
+            text = body; textSize = 13f; setTextColor(Color.LTGRAY); setPadding(0, dp(7), 0, 0)
         })
         content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
     }
@@ -130,35 +143,50 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
+        val totalDocs = profiles.sumOf { documents(it).length() }
         reset("Your study command centre", "A private learning workspace designed for offline use.")
-        card("LOCAL FIRST", "Your profile list is stored on this device. No account or cloud API is configured.")
-        card("AI PROFESSOR", "The local language model is not included in this starter build.")
+        card("LOCAL FIRST", "Your profiles and imported study files are stored privately in this app.")
+        card("DOCUMENT LIBRARY", "$totalDocs document(s) imported on this device.")
+        card("AI PROFESSOR", "Document reading is now available. The local language model is not integrated yet.")
         card("KNOWLEDGE PROFILES", "${profiles.size} profile(s) created on this device.")
         action("OPEN KNOWLEDGE MANAGER") { showKnowledge() }
         action("ABOUT THIS BUILD") {
-            Toast.makeText(this, "ATHENA starter v0.1.0 — AI engine not yet integrated.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ATHENA v0.2.0 — local PDF/TXT import and extraction.", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun showKnowledge() {
-        reset("Knowledge library", "Create a profile to organise your study materials.")
+        reset("Knowledge library", "Each profile keeps its own imported documents and extracted text.")
         action("＋ CREATE PROFILE") { createProfile() }
-        action("IMPORT A PDF / DOCUMENT") { pickDocument() }
-        if (profiles.isEmpty()) {
-            card("NO PROFILES YET", "Create a profile such as Current Semester.")
-        } else profiles.toList().forEach { name ->
-            card(name, "Profile saved locally. Document extraction, indexing and AI answers are not implemented yet.")
-            action("DELETE $name") {
-                profiles.remove(name); saveProfiles(); showKnowledge()
+        if (profiles.isEmpty()) card("NO PROFILES YET", "Create a profile such as Current Semester.")
+        profiles.toList().forEach { name ->
+            val docs = documents(name)
+            card(name, "${docs.length()} document(s) stored locally.")
+            action("IMPORT PDF / TXT INTO $name") { pickDocument(name) }
+            for (i in 0 until docs.length()) {
+                val doc = docs.optJSONObject(i) ?: continue
+                val docName = doc.optString("name", "Document")
+                val chars = doc.optInt("characters", 0)
+                action("READ: $docName ($chars characters)") { previewDocument(name, doc) }
+                action("DELETE: $docName") { deleteDocument(name, doc.optString("id")) }
+            }
+            action("DELETE PROFILE: $name") {
+                AlertDialog.Builder(this).setTitle("Delete $name?")
+                    .setMessage("This permanently deletes this profile's imported files and extracted text.")
+                    .setNegativeButton("CANCEL", null)
+                    .setPositiveButton("DELETE") { _, _ ->
+                        profiles.remove(name); saveProfiles()
+                        profileDir(name).deleteRecursively()
+                        prefs.edit().remove(docsKey(name)).apply()
+                        showKnowledge()
+                    }.show()
             }
         }
     }
 
     private fun createProfile() {
         val input = EditText(this).apply {
-            hint = "e.g. Current Semester"
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
+            hint = "e.g. Current Semester"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
         }
         AlertDialog.Builder(this).setTitle("New knowledge profile").setView(input)
             .setNegativeButton("CANCEL", null)
@@ -170,15 +198,13 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    private fun pickDocument() {
+    private fun pickDocument(profile: String) {
+        importingInto = profile
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                "application/pdf", "application/msword",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "text/plain"
-            ))
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/pdf", "text/plain"))
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         try { startActivityForResult(intent, 41) }
         catch (_: Exception) { Toast.makeText(this, "No file picker available.", Toast.LENGTH_SHORT).show() }
@@ -187,17 +213,123 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated by Android; retained for compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 41 && resultCode == RESULT_OK) {
-            val uri: Uri? = data?.data
-            if (uri != null) Toast.makeText(this,
-                "Selected: ${uri.lastPathSegment}. Import processing is not ready yet.",
-                Toast.LENGTH_LONG).show()
+        if (requestCode != 41 || resultCode != RESULT_OK || data == null) return
+        val profile = importingInto ?: return
+        val uris = mutableListOf<Uri>()
+        data.data?.let { uris.add(it) }
+        data.clipData?.let { clip ->
+            for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
         }
+        val uniqueUris = uris.distinct()
+        if (uniqueUris.isEmpty()) return
+        var imported = 0
+        val failures = mutableListOf<String>()
+        uniqueUris.forEach { uri ->
+            try {
+                importOne(profile, uri)
+                imported++
+            } catch (e: Exception) {
+                failures.add("${displayName(uri)}: ${e.message ?: "unsupported or unreadable file"}")
+            }
+        }
+        val message = buildString {
+            append("$imported file(s) imported into $profile.")
+            if (failures.isNotEmpty()) append("\nCould not import: " + failures.joinToString("; "))
+        }
+        AlertDialog.Builder(this).setTitle("Import complete").setMessage(message)
+            .setPositiveButton("OK") { _, _ -> showKnowledge() }.show()
+    }
+
+    private fun displayName(uri: Uri): String {
+        var name = "study_material"
+        val cursor: Cursor? = contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && it.moveToFirst()) name = it.getString(index) ?: name
+        }
+        return name
+    }
+
+    private fun importOne(profile: String, uri: Uri) {
+        val originalName = displayName(uri)
+        val lower = originalName.lowercase()
+        val isPdf = lower.endsWith(".pdf")
+        val isText = lower.endsWith(".txt") || contentResolver.getType(uri) == "text/plain"
+        require(isPdf || isText) { "Only PDF and TXT files are supported in this version." }
+        val id = System.currentTimeMillis().toString() + "_" + (0..9999).random()
+        val safeName = originalName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(90)
+        val dir = profileDir(profile)
+        val sourceFile = File(dir, "${id}_$safeName")
+        contentResolver.openInputStream(uri).use { input ->
+            requireNotNull(input) { "Could not open file." }.use { inputStream ->
+                sourceFile.outputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    var total = 0L
+                    while (true) {
+                        val count = inputStream.read(buffer)
+                        if (count <= 0) break
+                        total += count
+                        require(total <= 100L * 1024L * 1024L) { "File exceeds 100 MB limit." }
+                        output.write(buffer, 0, count)
+                    }
+                }
+            }
+        }
+        val extracted = if (isPdf) extractPdf(sourceFile) else sourceFile.readText(Charsets.UTF_8)
+        require(extracted.isNotBlank()) { "No readable text found. Scanned PDFs need OCR, which is not included yet." }
+        val textFile = File(dir, "${id}_extracted.txt")
+        textFile.writeText(extracted, Charsets.UTF_8)
+        val pages = if (isPdf) countPdfPages(sourceFile) else 1
+        val docs = documents(profile)
+        docs.put(JSONObject().apply {
+            put("id", id); put("name", originalName); put("source", sourceFile.name)
+            put("text", textFile.name); put("pages", pages); put("characters", extracted.length())
+        })
+        saveDocuments(profile, docs)
+    }
+
+    private fun extractPdf(file: File): String {
+        PDDocument.load(file).use { document ->
+            return PDFTextStripper().getText(document)
+        }
+    }
+
+    private fun countPdfPages(file: File): Int =
+        PDDocument.load(file).use { it.numberOfPages }
+
+    private fun previewDocument(profile: String, doc: JSONObject) {
+        val textFile = File(profileDir(profile), doc.optString("text"))
+        if (!textFile.exists()) {
+            Toast.makeText(this, "Extracted text file is missing.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val body = textFile.readText(Charsets.UTF_8)
+        val preview = if (body.length > 18000) body.take(18000) + "\n\n[Preview limited. Full text remains stored locally.]" else body
+        val view = TextView(this).apply {
+            text = preview; textSize = 14f; setTextColor(Color.WHITE); setPadding(dp(18), dp(12), dp(18), dp(12))
+        }
+        val scroll = ScrollView(this).apply { addView(view) }
+        AlertDialog.Builder(this).setTitle(doc.optString("name", "Document"))
+            .setView(scroll).setPositiveButton("CLOSE", null).show()
+    }
+
+    private fun deleteDocument(profile: String, id: String) {
+        val docs = documents(profile)
+        val kept = JSONArray()
+        for (i in 0 until docs.length()) {
+            val doc = docs.optJSONObject(i) ?: continue
+            if (doc.optString("id") == id) {
+                File(profileDir(profile), doc.optString("source")).delete()
+                File(profileDir(profile), doc.optString("text")).delete()
+            } else kept.put(doc)
+        }
+        saveDocuments(profile, kept)
+        showKnowledge()
     }
 
     private fun showComing(section: String) {
         reset(section, "This section is reserved in the ATHENA roadmap.")
-        card("COMING IN A LATER BUILD", "The local AI model, document indexing, professor chat, exam tools and voice service still need to be integrated and tested.")
+        card("COMING IN A LATER BUILD", "The offline AI model, grounded professor chat, exam tools and voice service still need to be integrated and tested.")
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
