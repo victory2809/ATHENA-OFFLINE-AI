@@ -2,6 +2,7 @@ package com.athena.offline
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.database.Cursor
@@ -19,6 +20,7 @@ import android.graphics.pdf.PdfRenderer as AndroidPdfRenderer
 import android.os.ParcelFileDescriptor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.MotionEvent
@@ -579,15 +581,229 @@ class MainActivity : Activity() {
 
     private fun showProfessor() {
         reset("🧠 ATHENA Professor", "Ask questions by typing or speaking. Voice input uses the speech service available on your phone.")
+        action("🧩 MODEL SETUP / STATUS") { showModelManager() }
+        action("💬 ASK OFFLINE AI — ALL NOTES") { askOfflineAi(null) }
+        profiles.forEach { p -> action("💬 ASK OFFLINE AI — $p") { askOfflineAi(p) } }
         action("ASK FROM ALL MATERIALS") { askQuestion(null) }
         action("🎙 TAP TO SPEAK") { startVoiceQuestion(null) }
         profiles.forEach { p -> action("ASK FROM $p") { askQuestion(p) }
         action("🎙 SPEAK — $p") { startVoiceQuestion(p) } }
+        action("🧩 OFFLINE MODEL MANAGER") { showModelManager() }
+        action("💬 CHAT WITH LOCAL AI") { askOfflineAi(null) }
         action("🔊 VOICE LANGUAGE") { chooseSpeechLanguage() }
         action("🔊 READ SAMPLE ALOUD") { speak("Hello! नमस्कार! मी ATHENA आहे. नमस्ते! मैं ATHENA हूँ।") }
-        card("OFFLINE STATUS", "Text search and evidence retrieval run locally. A full offline generative language model is not yet bundled.")
+        card("OFFLINE STATUS", "The native ARM64 llama.cpp engine is included in this build. Download the separate model once; after that, chat and note retrieval run locally without internet.")
     }
 
+
+
+    private val modelName = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    private val modelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    private val modelSha256 = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+    private val nativeEngine by lazy { NativeLlama() }
+    private fun modelFile(): File = File(getExternalFilesDir(null) ?: filesDir, "models/$modelName")
+
+    private fun showModelManager() {
+        val file = modelFile()
+        reset("Offline AI engine", "Native llama.cpp • ARM64 CPU • model stored separately from the APK")
+        card("ENGINE", "llama.cpp native runtime is packaged in this build. The language model is a separate download.")
+        card("MODEL", "Qwen2.5 0.5B Instruct • Q4_K_M • approximately 491 MB • Apache-2.0")
+        card("STORAGE", if (file.exists()) "Model file: ${file.length() / (1024 * 1024)} MB" else "Model is not downloaded yet. Keep at least 1 GB free before downloading.")
+        if (file.exists()) {
+            action("⚡ VERIFY & LOAD LOCAL MODEL") { verifyAndLoadModel(file) }
+            action("🗑 DELETE DOWNLOADED MODEL") {
+                AlertDialog.Builder(this).setTitle("Delete model?")
+                    .setMessage("This removes the downloaded 491 MB model. Your notes and profiles remain untouched.")
+                    .setNegativeButton("CANCEL", null).setPositiveButton("DELETE") { _, _ ->
+                        try { nativeEngine.nativeUnload() } catch (_: Exception) { }
+                        file.delete()
+                        showModelManager()
+                    }.show()
+            }
+        } else {
+            action("⬇ DOWNLOAD MODEL (ABOUT 491 MB)") { downloadModel() }
+        }
+        action("← BACK TO PROFESSOR") { showProfessor() }
+    }
+
+    private fun downloadModel() {
+        val file = modelFile()
+        file.parentFile?.mkdirs()
+        val stat = android.os.StatFs(file.parentFile!!.absolutePath)
+        val available = stat.availableBytes
+        if (available < 850L * 1024L * 1024L) {
+            AlertDialog.Builder(this).setTitle("Not enough free space")
+                .setMessage("ATHENA needs at least 850 MB free in app storage for this model and temporary download space.")
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        try {
+            val request = DownloadManager.Request(Uri.parse(modelUrl))
+                .setTitle("ATHENA offline AI model")
+                .setDescription("Downloading Qwen2.5 0.5B GGUF (about 491 MB)")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverMetered(true).setAllowedOverRoaming(false)
+                .setDestinationInExternalFilesDir(this, "models", modelName)
+            val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            val id = manager.enqueue(request)
+            prefs.edit().putLong("model_download_id", id).apply()
+            reset("Downloading AI model", "You can leave ATHENA open or return later. Android manages the download in the background.")
+            card("DOWNLOAD STARTED", "The model is about 491 MB. Use Wi-Fi if possible. The app itself remains small.")
+            pollModelDownload(id)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Download could not start: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun pollModelDownload(id: Long) {
+        val handler = android.os.Handler(mainLooper)
+        val check = object : Runnable {
+            override fun run() {
+                val query = DownloadManager.Query().setFilterById(id)
+                val cursor = (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).query(query)
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                        val soFar = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                            verifyAndLoadModel(modelFile())
+                            return
+                        }
+                        if (status == DownloadManager.STATUS_FAILED) {
+                            val reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                            Toast.makeText(this@MainActivity, "Model download failed (code $reason). Try again.", Toast.LENGTH_LONG).show()
+                            showModelManager()
+                            return
+                        }
+                        val percent = if (total > 0) (soFar * 100 / total).toInt() else -1
+                        reset("Downloading AI model", if (percent >= 0) "$percent% complete • ${soFar / 1048576} / ${total / 1048576} MB" else "Downloaded ${soFar / 1048576} MB")
+                        card("PLEASE WAIT", "Android Download Manager is downloading the model. Keep enough free storage.")
+                    }
+                }
+                handler.postDelayed(this, 1800)
+            }
+        }
+        handler.post(check)
+    }
+
+    private fun verifyAndLoadModel(file: File) {
+        if (!file.exists() || file.length() < 400L * 1024L * 1024L) {
+            Toast.makeText(this, "Model file is missing or incomplete. Download it again.", Toast.LENGTH_LONG).show()
+            showModelManager()
+            return
+        }
+        reset("Verifying model", "Checking the official model file checksum before loading.")
+        Thread {
+            try {
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(1024 * 1024)
+                    while (true) { val n = input.read(buffer); if (n <= 0) break; digest.update(buffer, 0, n) }
+                }
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (actual != modelSha256) throw IllegalStateException("Checksum mismatch. Delete the file and download it again.")
+                runOnUiThread {
+                    reset("Loading offline AI", "Loading model into memory. This can take a little time on the first launch.")
+                    Thread {
+                        try {
+                            val ok = nativeEngine.nativeLoad(file.absolutePath)
+                            runOnUiThread {
+                                if (ok) {
+                                    Toast.makeText(this, "Offline AI model loaded successfully.", Toast.LENGTH_LONG).show()
+                                    showProfessor()
+                                } else {
+                                    AlertDialog.Builder(this).setTitle("Model could not load")
+                                        .setMessage("The native engine could not load this model. Close other apps and retry. This device has not yet been performance-tested.")
+                                        .setPositiveButton("OK") { _, _ -> showModelManager() }.show()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread { Toast.makeText(this, "Engine error: ${e.message}", Toast.LENGTH_LONG).show(); showModelManager() }
+                        }
+                    }.start()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    AlertDialog.Builder(this).setTitle("Model verification failed")
+                        .setMessage(e.message ?: "Checksum check failed.")
+                        .setPositiveButton("OK") { _, _ -> showModelManager() }.show()
+                }
+            }
+        }.start()
+    }
+
+    private fun retrieveStudyContext(profile: String?, question: String): List<String> {
+        val terms = question.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
+            .filter { it.length >= 3 }.toSet()
+        if (terms.isEmpty()) return emptyList()
+        val candidates = mutableListOf<Triple<Int, String, String>>()
+        profiles.filter { profile == null || it == profile }.forEach { p ->
+            val docs = documents(p)
+            for (i in 0 until docs.length()) {
+                val d = docs.optJSONObject(i) ?: continue
+                val pageFile = File(profileDir(p), d.optString("pageText"))
+                val pages = if (pageFile.exists()) {
+                    try { JSONArray(pageFile.readText(Charsets.UTF_8)) } catch (_: Exception) { JSONArray() }
+                } else JSONArray()
+                val textFile = File(profileDir(p), d.optString("text"))
+                if (pages.length() == 0 && textFile.exists()) {
+                    textFile.readText(Charsets.UTF_8).split("\\u000c").forEachIndexed { idx, page ->
+                        val score = terms.count { page.lowercase().contains(it) }
+                        if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${idx + 1}", page.take(1400)))
+                    }
+                } else {
+                    for (page in 0 until pages.length()) {
+                        val body = pages.optString(page)
+                        val score = terms.count { body.lowercase().contains(it) }
+                        if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${page + 1}", body.take(1400)))
+                    }
+                }
+            }
+        }
+        return candidates.sortedByDescending { it.first }.take(4)
+            .map { "[Source: ${it.second}]\\n${it.third}" }
+    }
+
+    private fun askOfflineAi(profile: String?) {
+        val input = EditText(this).apply {
+            hint = "Ask ATHENA anything about your studies..."
+            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); minLines = 2
+        }
+        AlertDialog.Builder(this).setTitle("Ask offline ATHENA").setView(input)
+            .setNegativeButton("CANCEL", null).setPositiveButton("GENERATE") { _, _ ->
+                val question = input.text.toString().trim()
+                if (question.isBlank()) return@setPositiveButton
+                if (!modelFile().exists()) {
+                    AlertDialog.Builder(this).setMessage("Download and load the offline model first.")
+                        .setPositiveButton("OPEN MODEL MANAGER") { _, _ -> showModelManager() }.show()
+                    return@setPositiveButton
+                }
+                val evidence = retrieveStudyContext(profile, question)
+                val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
+                    else evidence.joinToString("\\n\\n")
+                val prompt = "<|im_start|>system\\nYou are ATHENA, a careful student study tutor. Explain clearly and simply. Do not invent facts or citations. Use the provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If the excerpts do not contain the answer, say that clearly.\\n\\nSTUDY EXCERPTS:\\n$contextText<|im_end|>\\n<|im_start|>user\\n$question<|im_end|>\\n<|im_start|>assistant\\n"
+                reset("ATHENA is thinking…", "Running the model locally on your phone. No question is sent to a cloud AI service.")
+                Thread {
+                    try {
+                        val answer = nativeEngine.nativeGenerate(prompt, 256)
+                        runOnUiThread {
+                            val view = TextView(this).apply {
+                                text = answer; textSize = 15f; setTextColor(Color.WHITE)
+                                setPadding(dp(18), dp(14), dp(18), dp(14))
+                            }
+                            AlertDialog.Builder(this).setTitle("ATHENA • Offline answer")
+                                .setView(ScrollView(this).apply { addView(view) })
+                                .setPositiveButton("ASK ANOTHER") { _, _ -> askOfflineAi(profile) }
+                                .setNegativeButton("CLOSE") { _, _ -> showProfessor() }.show()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { AlertDialog.Builder(this).setMessage("Generation failed: ${e.message}")
+                            .setPositiveButton("OK") { _, _ -> showProfessor() }.show() }
+                    }
+                }.start()
+            }.show()
+    }
 
     private var pendingVoiceProfile: String? = null
 
