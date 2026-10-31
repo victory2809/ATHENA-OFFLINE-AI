@@ -22,6 +22,7 @@ import android.graphics.pdf.PdfRenderer as AndroidPdfRenderer
 import android.os.ParcelFileDescriptor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
 import android.os.Environment
 import android.provider.OpenableColumns
 import android.view.Gravity
