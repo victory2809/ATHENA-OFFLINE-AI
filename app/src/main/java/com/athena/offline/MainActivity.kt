@@ -749,8 +749,9 @@ class MainActivity : Activity() {
                                     val queuedQuestion = prefs.getString("pending_ai_question", null)
                                     if (!queuedQuestion.isNullOrBlank()) {
                                         val queuedProfile = prefs.getString("pending_ai_profile", "").orEmpty().ifBlank { null }
-                                        prefs.edit().remove("pending_ai_question").remove("pending_ai_profile").apply()
-                                        generateOfflineAnswer(queuedProfile, queuedQuestion)
+                                        Handler(mainLooper).postDelayed({
+                                            generateOfflineAnswer(queuedProfile, queuedQuestion)
+                                        }, 350)
                                     }
                                 } else {
                                     AlertDialog.Builder(this).setTitle("Model could not load")
@@ -846,11 +847,14 @@ class MainActivity : Activity() {
         reset("ATHENA is thinking…", "Running a low-memory local answer. Keep this screen open; do not press Back.")
         Thread {
             try {
-                val answer = nativeEngine.nativeGenerate(prompt, 48).ifBlank { "ATHENA could not generate an answer. Try a shorter question." }
+                val stageFile = File(filesDir, "athena_inference_stage.txt")
+                stageFile.writeText("kotlin_calling_native_generate")
+                val answer = nativeEngine.nativeGenerate(prompt, 32, stageFile.absolutePath).ifBlank { "ATHENA could not generate an answer. Try a shorter question." }
+                stageFile.writeText("answer_returned_to_kotlin")
                 chatHistory.add(question to answer)
                 val saved = JSONArray()
                 chatHistory.takeLast(8).forEach { turn -> saved.put(JSONObject().put("q", turn.first).put("a", turn.second)) }
-                prefs.edit().putString(chatHistoryKey(profile), saved.toString()).apply()
+                prefs.edit().putString(chatHistoryKey(profile), saved.toString()).remove("pending_ai_question").remove("pending_ai_profile").apply()
                 runOnUiThread {
                     val view = TextView(this).apply { text = answer; textSize = 15f; setTextColor(Color.WHITE); setPadding(dp(18), dp(14), dp(18), dp(14)) }
                     AlertDialog.Builder(this).setTitle("ATHENA • Offline answer")
