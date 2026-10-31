@@ -77,9 +77,9 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
     g_model = llama_model_load_from_file(path.c_str(), mp);
     if (!g_model) return JNI_FALSE;
     auto cp = llama_context_default_params();
-    cp.n_ctx = 1024;
-    cp.n_batch = 64;
-    cp.n_ubatch = 32;
+    cp.n_ctx = 512;
+    cp.n_batch = 32;
+    cp.n_ubatch = 16;
     cp.n_threads = 2;
     cp.n_threads_batch = 2;
     g_ctx = llama_init_from_model(g_model, cp);
@@ -103,7 +103,7 @@ Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring
     }
     if (n <= 0) return from_utf8(env, "Could not tokenize the question.");
     const int context = (int)llama_n_ctx(g_ctx);
-    const int limit = std::max(1, std::min((int)maxTokens, 96));
+    const int limit = std::max(1, std::min((int)maxTokens, 48));
     if (n >= context - 8 || n + limit >= context) {
         return from_utf8(env, "This question and its notes are too long for the phone's local context. Please shorten the question or use fewer notes.");
     }
