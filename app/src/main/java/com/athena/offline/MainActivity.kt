@@ -93,7 +93,7 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(22), dp(18), dp(12))
         }
         val header = TextView(this).apply {
-            text = "ATHENA  /  OFFLINE STUDY INTELLIGENCE"
+            text = "✦ ATHENA  •  YOUR AI STUDY COMPANION"
             setTextColor(accent); textSize = 12f
             typeface = Typeface.DEFAULT_BOLD; letterSpacing = 0.11f
             setPadding(dp(2), dp(4), dp(2), dp(4))
@@ -108,9 +108,10 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
             setPadding(0, dp(8), 0, 0)
         }
-        listOf("HOME", "PROFESSOR", "KNOWLEDGE", "EXAM", "STUDY").forEach { label ->
+        listOf("🏠 HOME", "🧠 AI", "📚 LIBRARY", "🎯 EXAM", "📅 STUDY").forEach { item ->
+            val label = when (item) { "🏠 HOME" -> "HOME"; "🧠 AI" -> "PROFESSOR"; "📚 LIBRARY" -> "KNOWLEDGE"; "🎯 EXAM" -> "EXAM"; else -> "STUDY" }
             val button = Button(this).apply {
-                text = label; textSize = 8f; setTextColor(Color.WHITE)
+                text = item; textSize = 9f; setTextColor(Color.WHITE)
                 isAllCaps = false
                 background = gradient(if (label == "HOME") Color.rgb(35, 83, 150) else Color.rgb(24, 36, 58), Color.rgb(12, 20, 35), 12)
                 elevation = dp(3).toFloat()
@@ -175,20 +176,20 @@ class MainActivity : Activity() {
             background = gradient(Color.rgb(83, 161, 255), Color.rgb(38, 105, 218), 13)
             elevation = dp(4).toFloat()
             setPadding(dp(10), 0, dp(10), 0)
-            setOnClickListener { onClick() }
+            setOnClickListener { animate().scaleX(0.97f).scaleY(0.97f).setDuration(75).withEndAction { animate().scaleX(1f).scaleY(1f).setDuration(90).start(); onClick() }.start() }
         }
         content.addView(button, LinearLayout.LayoutParams(-1, dp(50)).apply { bottomMargin = dp(10) })
     }
 
     private fun showHome() {
         val totalDocs = profiles.sumOf { documents(it).length() }
-        reset("Your study command centre", "A private learning workspace designed for offline use.")
-        card("LOCAL FIRST", "Your profiles and imported study files are stored privately in this app.")
-        card("DOCUMENT LIBRARY", "$totalDocs document(s) imported on this device.")
-        card("STUDY TOOLS", "Search, evidence-based answers, viva practice, tests and a local study planner are available.")
-        card("KNOWLEDGE PROFILES", "${profiles.size} profile(s) created on this device.")
-        action("OPEN KNOWLEDGE MANAGER") { showKnowledge() }
-        action("SEARCH ALL STUDY MATERIALS") { searchAll() }
+        reset("✨ Your study command centre", "Learn smarter. Stay consistent. Keep your knowledge private.")
+        card("🔒 LOCAL FIRST", "Your profiles and imported study files are stored privately in this app.")
+        card("📚 DOCUMENT LIBRARY", "$totalDocs document(s) imported on this device.")
+        card("⚡ STUDY TOOLS", "Search, evidence-based answers, viva practice, tests and a local study planner are available.")
+        card("🗂 KNOWLEDGE PROFILES", "${profiles.size} profile(s) created on this device.")
+        action("📚 OPEN KNOWLEDGE MANAGER") { showKnowledge() }
+        action("🔎 SEARCH ALL STUDY MATERIALS") { searchAll() }
         action("ABOUT THIS BUILD") {
             Toast.makeText(this, "ATHENA v0.2.0 — local PDF/TXT import and extraction.", Toast.LENGTH_LONG).show()
         }
