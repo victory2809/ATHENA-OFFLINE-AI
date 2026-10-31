@@ -7,6 +7,14 @@ import android.database.Cursor
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Bitmap
+import android.speech.tts.TextToSpeech
+import java.util.Locale
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.android.gms.tasks.Tasks
+import org.apache.pdfbox.rendering.PDFRenderer
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -29,12 +37,20 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("athena_local", MODE_PRIVATE) }
     private val profiles = mutableListOf<String>()
     private var importingInto: String? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Color.rgb(5, 9, 18)
         window.navigationBarColor = Color.rgb(5, 9, 18)
         PDFBoxResourceLoader.init(applicationContext)
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
+                tts?.language = Locale.getDefault()
+            }
+        }
         loadProfiles()
         buildShell()
         showHome()
@@ -101,7 +117,10 @@ class MainActivity : Activity() {
                     when (label) {
                         "HOME" -> showHome()
                         "KNOWLEDGE" -> showKnowledge()
-                        else -> showComing(label)
+                        "PROFESSOR" -> showProfessor()
+                        "EXAM" -> showExam()
+                        "STUDY" -> showStudy()
+                        else -> showHome()
                     }
                 }
             }
@@ -165,9 +184,10 @@ class MainActivity : Activity() {
         reset("Your study command centre", "A private learning workspace designed for offline use.")
         card("LOCAL FIRST", "Your profiles and imported study files are stored privately in this app.")
         card("DOCUMENT LIBRARY", "$totalDocs document(s) imported on this device.")
-        card("AI PROFESSOR", "Document reading is now available. The local language model is not integrated yet.")
+        card("STUDY TOOLS", "Search, evidence-based answers, viva practice, tests and a local study planner are available.")
         card("KNOWLEDGE PROFILES", "${profiles.size} profile(s) created on this device.")
         action("OPEN KNOWLEDGE MANAGER") { showKnowledge() }
+        action("SEARCH ALL STUDY MATERIALS") { searchAll() }
         action("ABOUT THIS BUILD") {
             Toast.makeText(this, "ATHENA v0.2.0 — local PDF/TXT import and extraction.", Toast.LENGTH_LONG).show()
         }
@@ -182,11 +202,13 @@ class MainActivity : Activity() {
             card(name, "${docs.length()} document(s) stored locally.")
             action("IMPORT PDF / TXT INTO $name") { pickDocument(name) }
             action("＋ PASTE TRANSCRIPT / AI NOTES") { pasteText(name) }
+            action("＋ ADD SUBJECT FOLDER") { addSubject(name) }
+            action("SEARCH THIS PROFILE") { searchProfile(name) }
             for (i in 0 until docs.length()) {
                 val doc = docs.optJSONObject(i) ?: continue
                 val docName = doc.optString("name", "Document")
                 val chars = doc.optInt("characters", 0)
-                action("READ: $docName ($chars characters)") { previewDocument(name, doc) }
+                action("[$subject] READ: $docName ($chars characters)") { previewDocument(name, doc) }
                 action("DELETE: $docName") { deleteDocument(name, doc.optString("id")) }
             }
             action("DELETE PROFILE: $name") {
@@ -415,6 +437,176 @@ class MainActivity : Activity() {
         showKnowledge()
     }
 
+
+    private fun subjectsKey(profile: String) = "subjects_" + profile
+
+    private fun subjects(profile: String): MutableList<String> {
+        val a = try { JSONArray(prefs.getString(subjectsKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        return MutableList(a.length()) { i -> a.optString(i) }
+    }
+
+    private fun addSubject(profile: String) {
+        val input = EditText(this).apply { hint = "e.g. DBMS"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        AlertDialog.Builder(this).setTitle("Create subject folder").setView(input)
+            .setNegativeButton("CANCEL", null).setPositiveButton("CREATE") { _, _ ->
+                val name = input.text.toString().trim()
+                val list = subjects(profile)
+                if (name.isNotBlank() && !list.contains(name)) {
+                    list.add(name)
+                    val a = JSONArray(); list.forEach { a.put(it) }
+                    prefs.edit().putString(subjectsKey(profile), a.toString()).apply()
+                    Toast.makeText(this, "Subject folder created.", Toast.LENGTH_SHORT).show()
+                    showKnowledge()
+                }
+            }.show()
+    }
+
+    private fun selectedSubject(profile: String): String = currentImportSubject[profile] ?: "Unsorted"
+    private val currentImportSubject = mutableMapOf<String, String>()
+
+    private fun searchAll() {
+        val input = EditText(this).apply { hint = "Search concepts, keywords, questions..."; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        AlertDialog.Builder(this).setTitle("Search all materials").setView(input)
+            .setNegativeButton("CANCEL", null).setPositiveButton("SEARCH") { _, _ ->
+                searchDocuments(null, input.text.toString())
+            }.show()
+    }
+
+    private fun searchProfile(profile: String) {
+        val input = EditText(this).apply { hint = "Search within $profile"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        AlertDialog.Builder(this).setTitle("Search profile").setView(input)
+            .setNegativeButton("CANCEL", null).setPositiveButton("SEARCH") { _, _ ->
+                searchDocuments(profile, input.text.toString())
+            }.show()
+    }
+
+    private fun searchDocuments(onlyProfile: String?, query: String) {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) return
+        val hits = mutableListOf<String>()
+        profiles.filter { onlyProfile == null || it == onlyProfile }.forEach { profile ->
+            val docs = documents(profile)
+            for (i in 0 until docs.length()) {
+                val d = docs.optJSONObject(i) ?: continue
+                val file = File(profileDir(profile), d.optString("text"))
+                if (!file.exists()) continue
+                val pages = file.readText(Charsets.UTF_8).split("\\u000c", "\\n\\n")
+                pages.forEachIndexed { index, page ->
+                    if (page.lowercase().contains(q)) {
+                        val excerpt = page.trim().replace(Regex("\\s+"), " ").take(260)
+                        hits.add("$profile / ${d.optString("subject", "Unsorted")} / ${d.optString("name")} — match near page ${index + 1}: $excerpt")
+                    }
+                }
+            }
+        }
+        val result = if (hits.isEmpty()) "No matching text found in imported material." else hits.take(30).joinToString("\\n\\n")
+        val view = TextView(this).apply { text = result; textSize = 14f; setTextColor(Color.WHITE); setPadding(dp(16), dp(12), dp(16), dp(12)) }
+        AlertDialog.Builder(this).setTitle("Search results (${hits.size})").setView(ScrollView(this).apply { addView(view) }).setPositiveButton("CLOSE", null).show()
+    }
+
+    private fun showProfessor() {
+        reset("ATHENA Professor", "Ask questions against your imported notes. Answers show matching source passages; this is local retrieval, not a generative LLM yet.")
+        action("ASK FROM ALL MATERIALS") { askQuestion(null) }
+        profiles.forEach { p -> action("ASK FROM $p") { askQuestion(p) } }
+        action("READ ANSWER ALOUD") { if (ttsReady) tts?.speak("ATHENA local study assistant. Answers are based on matching passages in your saved notes.", TextToSpeech.QUEUE_FLUSH, null, "athena") }
+        card("OFFLINE STATUS", "Text search and evidence retrieval run locally. A full offline generative language model is not yet bundled.")
+    }
+
+    private fun askQuestion(profile: String?) {
+        val input = EditText(this).apply { hint = "Type your question"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        AlertDialog.Builder(this).setTitle("Ask ATHENA").setView(input).setNegativeButton("CANCEL", null)
+            .setPositiveButton("FIND ANSWER") { _, _ -> searchDocuments(profile, input.text.toString()) }.show()
+    }
+
+    private fun showExam() {
+        reset("Viva & Exam Arena", "Generate practice prompts from your imported notes. Check the source text after answering.")
+        profiles.forEach { profile -> action("START VIVA — $profile") { startViva(profile) } }
+        if (profiles.isEmpty()) card("NO MATERIALS", "Create a profile and import notes first.")
+    }
+
+    private fun startViva(profile: String) {
+        val pool = mutableListOf<Pair<String, String>>()
+        val docs = documents(profile)
+        for (i in 0 until docs.length()) {
+            val d = docs.optJSONObject(i) ?: continue
+            val f = File(profileDir(profile), d.optString("text"))
+            if (!f.exists()) continue
+            f.readText(Charsets.UTF_8).split(Regex("[.!?\\n]")).map { it.trim() }
+                .filter { it.length in 45..240 }.take(80).forEach { pool.add(d.optString("name") to it) }
+        }
+        if (pool.isEmpty()) {
+            Toast.makeText(this, "Import readable notes first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val chosen = pool.shuffled().take(10)
+        var index = 0
+        var score = 0
+        fun next() {
+            if (index >= chosen.size) {
+                AlertDialog.Builder(this).setTitle("Viva completed").setMessage("You reviewed $score of ${chosen.size} prompts. This is a self-check; ATHENA has not automatically graded correctness.")
+                    .setPositiveButton("DONE", null).show()
+                return
+            }
+            val pair = chosen[index]
+            val answer = EditText(this).apply { hint = "Write your answer before revealing the reference"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); minLines = 3 }
+            AlertDialog.Builder(this).setTitle("Viva ${index + 1}/${chosen.size}")
+                .setMessage("Explain this concept from ${pair.first}:\\n\\n${pair.second.take(190)}")
+                .setView(answer).setNegativeButton("SKIP") { _, _ -> index++; next() }
+                .setPositiveButton("SHOW REFERENCE") { _, _ ->
+                    score++
+                    AlertDialog.Builder(this).setTitle("Reference passage").setMessage(pair.second)
+                        .setPositiveButton("NEXT") { _, _ -> index++; next() }.show()
+                }.show()
+        }
+        next()
+    }
+
+    private fun showStudy() {
+        reset("Study planner", "A simple offline planner saved on this device.")
+        action("ADD STUDY TASK") { addStudyTask() }
+        val tasks = try { JSONArray(prefs.getString("study_tasks", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        for (i in 0 until tasks.length()) {
+            val item = tasks.optJSONObject(i) ?: continue
+            card(item.optString("date"), item.optString("subject") + " — " + item.optString("task"))
+        }
+    }
+
+    private fun addStudyTask() {
+        val subject = EditText(this).apply { hint = "Subject"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        val task = EditText(this).apply { hint = "What will you study?"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        val date = EditText(this).apply { hint = "Date (YYYY-MM-DD)"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0); addView(subject); addView(task); addView(date) }
+        AlertDialog.Builder(this).setTitle("New study task").setView(box).setNegativeButton("CANCEL", null)
+            .setPositiveButton("SAVE") { _, _ ->
+                val a = try { JSONArray(prefs.getString("study_tasks", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+                a.put(JSONObject().put("subject", subject.text.toString()).put("task", task.text.toString()).put("date", date.text.toString()))
+                prefs.edit().putString("study_tasks", a.toString()).apply()
+                showStudy()
+            }.show()
+    }
+
+    private fun extractPdfPagesWithOcr(file: File): List<String> {
+        PDDocument.load(file).use { document ->
+            val renderer = PDFRenderer(document)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            val result = mutableListOf<String>()
+            for (pageIndex in 0 until document.numberOfPages) {
+                val stripper = PDFTextStripper().apply { startPage = pageIndex + 1; endPage = pageIndex + 1 }
+                var text = stripper.getText(document).trim()
+                if (text.isBlank()) {
+                    val bitmap = renderer.renderImageWithDPI(pageIndex, 150f)
+                    try {
+                        val image = InputImage.fromBitmap(bitmap, 0)
+                        text = Tasks.await(recognizer.process(image)).text
+                    } finally { bitmap.recycle() }
+                }
+                result.add(text)
+            }
+            recognizer.close()
+            return result
+        }
+    }
+
     private fun showComing(section: String) {
         reset(section, "This section is reserved in the ATHENA roadmap.")
         card("COMING IN A LATER BUILD", "The offline AI model, grounded professor chat, exam tools and voice service still need to be integrated and tested.")
@@ -432,6 +624,12 @@ class MainActivity : Activity() {
             cornerRadius = dp(radiusDp).toFloat()
             if (stroke != null) setStroke(dp(1), stroke)
         }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        super.onDestroy()
+    }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
