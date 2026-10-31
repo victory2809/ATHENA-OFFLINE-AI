@@ -310,7 +310,7 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/pdf", "text/plain"))
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/pdf", "text/plain", "image/jpeg", "image/png", "image/webp"))
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         try { startActivityForResult(intent, 41) }
@@ -866,6 +866,7 @@ class MainActivity : Activity() {
                 val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, locale)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                     putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak your study question")
                 }
                 pendingVoiceProfile = profile
