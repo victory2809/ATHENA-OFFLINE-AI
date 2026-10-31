@@ -283,7 +283,7 @@ class MainActivity : Activity() {
         val docs = documents(profile)
         docs.put(JSONObject().apply {
             put("id", id); put("name", originalName); put("source", sourceFile.name)
-            put("text", textFile.name); put("pages", pages); put("characters", extracted.length())
+            put("text", textFile.name); put("pages", pages); put("characters", extracted.length)
         })
         saveDocuments(profile, docs)
     }
