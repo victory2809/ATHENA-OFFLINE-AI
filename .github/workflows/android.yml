@@ -18,10 +18,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          accept-android-sdk-licenses: true
       - name: Install native build tools
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-35"
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-35"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
