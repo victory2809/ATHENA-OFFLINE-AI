@@ -320,7 +320,7 @@ class MainActivity : Activity() {
     private fun pasteText(profile: String) {
         val titleInput = EditText(this).apply {
             hint = "Title (e.g. YouTube: DBMS Normalization)"
-            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); singleLine = true
+            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); setSingleLine(true)
         }
         val bodyInput = EditText(this).apply {
             hint = "Paste a YouTube transcript, AI explanation, class notes, or your own text..."
