@@ -331,7 +331,7 @@ class MainActivity : Activity() {
         var textFile: File? = null
         try {
             val pageTexts = if (isPdf) extractPdfPagesWithOcr(sourceFile) else listOf(sourceFile.readText(Charsets.UTF_8))
-            val extracted = pageTexts.joinToString("\\u000c") { it }
+            val extracted = pageTexts.joinToString("\u000c") { it }
             require(extracted.isNotBlank()) { "No readable text found. The PDF may be encrypted, damaged, or blank." }
             textFile = File(dir, "${id}_extracted.txt")
             textFile.writeText(extracted, Charsets.UTF_8)
@@ -505,7 +505,7 @@ class MainActivity : Activity() {
                 val d = docs.optJSONObject(i) ?: continue
                 val file = File(profileDir(profile), d.optString("text"))
                 if (!file.exists()) continue
-                val pages = file.readText(Charsets.UTF_8).split("\\u000c", "\\n\\n")
+                val pages = file.readText(Charsets.UTF_8).split("\u000c", "\n\n")
                 pages.forEachIndexed { index, page ->
                     if (page.lowercase().contains(q)) {
                         val excerpt = page.trim().replace(Regex("\\s+"), " ").take(260)
@@ -514,7 +514,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        val result = if (hits.isEmpty()) "No matching text found in imported material." else hits.take(30).joinToString("\\n\\n")
+        val result = if (hits.isEmpty()) "No matching text found in imported material." else hits.take(30).joinToString("\n\n")
         val view = TextView(this).apply { text = result; textSize = 14f; setTextColor(Color.WHITE); setPadding(dp(16), dp(12), dp(16), dp(12)) }
         AlertDialog.Builder(this).setTitle("Search results (${hits.size})").setView(ScrollView(this).apply { addView(view) }).setPositiveButton("CLOSE", null).show()
     }
