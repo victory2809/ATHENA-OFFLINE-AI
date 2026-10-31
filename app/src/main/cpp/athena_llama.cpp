@@ -16,7 +16,6 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     llama_backend_init();
     auto mp = llama_model_default_params();
-    mp.use_mmap = true;
     g_model = llama_model_load_from_file(path, mp);
     env->ReleaseStringUTFChars(jpath, path);
     if (!g_model) return JNI_FALSE;
