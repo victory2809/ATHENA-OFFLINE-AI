@@ -240,7 +240,7 @@ class MainActivity : Activity() {
         action("📚 OPEN KNOWLEDGE MANAGER") { showKnowledge() }
         action("🔎 SEARCH ALL STUDY MATERIALS") { searchAll() }
         action("ABOUT THIS BUILD") {
-            Toast.makeText(this, "ATHENA v0.7.0 — visual refresh and touch feedback.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ATHENA v0.8.0 — active-recall revision tools and touch feedback.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -629,9 +629,63 @@ class MainActivity : Activity() {
     }
 
     private fun showExam() {
-        reset("Viva & Exam Arena", "Generate practice prompts from your imported notes. Check the source text after answering.")
-        profiles.forEach { profile -> action("START VIVA — $profile") { startViva(profile) } }
+        reset("Viva & Exam Arena", "Turn your own notes into active-recall practice. Review, reveal, and track your confidence.")
+        profiles.forEach { profile ->
+            action("⚡ QUICK REVISION — $profile") { startQuickRevision(profile) }
+            action("🎙 START VIVA — $profile") { startViva(profile) }
+        }
         if (profiles.isEmpty()) card("NO MATERIALS", "Create a profile and import notes first.")
+        card("ACTIVE RECALL", "Try to explain each prompt before revealing the source passage. Your confidence taps are saved locally; they are not AI grading.")
+    }
+
+    private fun startQuickRevision(profile: String) {
+        val pool = mutableListOf<Pair<String, String>>()
+        val docs = documents(profile)
+        for (i in 0 until docs.length()) {
+            val d = docs.optJSONObject(i) ?: continue
+            val file = File(profileDir(profile), d.optString("text"))
+            if (!file.exists()) continue
+            file.readText(Charsets.UTF_8)
+                .split(Regex("[.!?\\n]+"))
+                .map { it.trim().replace(Regex("\\s+"), " ") }
+                .filter { it.length in 55..320 }
+                .take(150)
+                .forEach { pool.add(d.optString("name", "Study note") to it) }
+        }
+        if (pool.isEmpty()) {
+            Toast.makeText(this, "Import readable notes first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cards = pool.shuffled().take(15)
+        var index = 0
+        var confident = 0
+        var review = 0
+        fun nextCard() {
+            if (index >= cards.size) {
+                val previous = prefs.getInt("revision_sessions_$profile", 0)
+                prefs.edit().putInt("revision_sessions_$profile", previous + 1)
+                    .putInt("revision_confident_$profile", prefs.getInt("revision_confident_$profile", 0) + confident)
+                    .putInt("revision_review_$profile", prefs.getInt("revision_review_$profile", 0) + review).apply()
+                AlertDialog.Builder(this).setTitle("Revision session complete")
+                    .setMessage("Cards reviewed: ${cards.size}\\nConfident: $confident\\nNeeds another look: $review\\n\\nThese are your self-reported results, not automatic answer grading.")
+                    .setPositiveButton("DONE") { _, _ -> showExam() }.show()
+                return
+            }
+            val item = cards[index]
+            val passage = item.second
+            val words = passage.split(" ")
+            val prompt = if (words.size > 13) words.take(7).joinToString(" ") + " …" else "Explain this idea in your own words."
+            AlertDialog.Builder(this).setTitle("Recall ${index + 1}/${cards.size}")
+                .setMessage("Source: ${item.first}\\n\\n$prompt\\n\\nThink of the full explanation before revealing it.")
+                .setNegativeButton("SKIP") { _, _ -> index++; nextCard() }
+                .setPositiveButton("REVEAL") { _, _ ->
+                    AlertDialog.Builder(this).setTitle("Reference passage").setMessage(passage)
+                        .setNeutralButton("REVIEW AGAIN") { _, _ -> review++; index++; nextCard() }
+                        .setPositiveButton("I KNEW IT") { _, _ -> confident++; index++; nextCard() }
+                        .show()
+                }.show()
+        }
+        nextCard()
     }
 
     private fun startViva(profile: String) {
