@@ -9,8 +9,8 @@ android {
         applicationId = "com.athena.offline"
         minSdk = 23
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9.0"
+        versionCode = 10
+        versionName = "1.0.0"
         ndk { abiFilters += setOf("arm64-v8a") }
     }
     externalNativeBuild {
@@ -26,4 +26,5 @@ android {
 dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
 }

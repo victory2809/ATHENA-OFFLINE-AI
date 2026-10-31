@@ -15,6 +15,8 @@ import java.util.Locale
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import android.graphics.BitmapFactory
 import com.google.android.gms.tasks.Tasks
 import android.graphics.pdf.PdfRenderer as AndroidPdfRenderer
 import android.os.ParcelFileDescriptor
@@ -368,7 +370,9 @@ class MainActivity : Activity() {
         val lower = originalName.lowercase()
         val isPdf = lower.endsWith(".pdf")
         val isText = lower.endsWith(".txt") || contentResolver.getType(uri) == "text/plain"
-        require(isPdf || isText) { "Only PDF and TXT files are supported in this version." }
+        val isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+            lower.endsWith(".webp") || (contentResolver.getType(uri)?.startsWith("image/") == true)
+        require(isPdf || isText || isImage) { "Supported formats: PDF, TXT, JPG, PNG and WEBP." }
         val id = System.currentTimeMillis().toString() + "_" + (0..9999).random()
         val safeName = originalName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(90)
         val dir = profileDir(profile)
@@ -390,7 +394,11 @@ class MainActivity : Activity() {
         }
         var textFile: File? = null
         try {
-            val pageTexts = if (isPdf) extractPdfPagesWithOcr(sourceFile) else listOf(sourceFile.readText(Charsets.UTF_8))
+            val pageTexts = when {
+                isPdf -> extractPdfPagesWithOcr(sourceFile)
+                isImage -> listOf(extractImageText(sourceFile))
+                else -> listOf(sourceFile.readText(Charsets.UTF_8))
+            }
             val extracted = pageTexts.joinToString("\u000c") { it }
             require(extracted.isNotBlank()) { "No readable text found. The PDF may be encrypted, damaged, or blank." }
             textFile = File(dir, "${id}_extracted.txt")
@@ -582,6 +590,7 @@ class MainActivity : Activity() {
     private fun showProfessor() {
         reset("🧠 ATHENA Professor", "Ask questions by typing or speaking. Voice input uses the speech service available on your phone.")
         action("🧩 MODEL SETUP / STATUS") { showModelManager() }
+        action("✨ PERSONALIZE ATHENA") { personalizeAthena() }
         action("💬 ASK OFFLINE AI — ALL NOTES") { askOfflineAi(null) }
         profiles.forEach { p -> action("💬 ASK OFFLINE AI — $p") { askOfflineAi(p) } }
         action("ASK FROM ALL MATERIALS") { askQuestion(null) }
@@ -592,10 +601,31 @@ class MainActivity : Activity() {
         action("💬 CHAT WITH LOCAL AI") { askOfflineAi(null) }
         action("🔊 VOICE LANGUAGE") { chooseSpeechLanguage() }
         action("🔊 READ SAMPLE ALOUD") { speak("Hello! नमस्कार! मी ATHENA आहे. नमस्ते! मैं ATHENA हूँ।") }
-        card("OFFLINE STATUS", "The native ARM64 llama.cpp engine is included in this build. Download the separate model once; after that, chat and note retrieval run locally without internet.")
+        card("OFFLINE STATUS", "OCR supports selectable PDF text, scanned PDF pages, JPG, PNG and WEBP. Latin and Devanagari recognition are bundled on-device. The AI model is downloaded once; inference and note retrieval then run locally.")
     }
 
 
+
+    private fun personalizeAthena() {
+        val input = EditText(this).apply {
+            hint = "Example:\\nI am a 2nd-year AIML diploma student.\\nExplain from basics, step by step.\\nUse simple English with Marathi/Hindi support.\\nFor exams, structure answers for 2M/4M questions."
+            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            minLines = 7; maxLines = 12; textSize = 14f
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(panel, 12, Color.rgb(55, 77, 112))
+            setText(prefs.getString("learner_personalization", "") ?: "")
+        }
+        AlertDialog.Builder(this).setTitle("Personalize your tutor")
+            .setMessage("This stays on this phone and is added to ATHENA's local tutor instructions.")
+            .setView(input).setNegativeButton("CANCEL", null)
+            .setNeutralButton("CLEAR") { _, _ -> prefs.edit().remove("learner_personalization").apply(); Toast.makeText(this, "Personalization cleared.", Toast.LENGTH_SHORT).show() }
+            .setPositiveButton("SAVE") { _, _ ->
+                prefs.edit().putString("learner_personalization", input.text.toString().trim().take(2500)).apply()
+                Toast.makeText(this, "ATHENA personalization saved locally.", Toast.LENGTH_SHORT).show()
+            }.show()
+    }
+
+    private fun chatHistoryKey(profile: String?) = "chat_history_" + (profile ?: "all")
 
     private val modelName = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
     private val modelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
@@ -752,7 +782,7 @@ class MainActivity : Activity() {
                 } else JSONArray()
                 val textFile = File(profileDir(p), d.optString("text"))
                 if (pages.length() == 0 && textFile.exists()) {
-                    textFile.readText(Charsets.UTF_8).split("\\u000c").forEachIndexed { idx, page ->
+                    textFile.readText(Charsets.UTF_8).split("\u000c").forEachIndexed { idx, page ->
                         val score = terms.count { page.lowercase().contains(it) }
                         if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${idx + 1}", page.take(850)))
                     }
@@ -776,7 +806,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this).setTitle("Ask offline ATHENA").setView(input)
             .setNegativeButton("CANCEL", null).setPositiveButton("GENERATE") { _, _ ->
-                val question = input.text.toString().trim()
+                val question = input.text.toString().trim().take(1200)
                 if (question.isBlank()) return@setPositiveButton
                 if (!modelFile().exists()) {
                     AlertDialog.Builder(this).setMessage("Download and load the offline model first.")
@@ -790,14 +820,24 @@ class MainActivity : Activity() {
                 }
                 val evidence = retrieveStudyContext(profile, question)
                 val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
-                    else evidence.joinToString("\\n\\n")
-                val historyText = chatHistory.takeLast(4).joinToString("\n") { "User: ${it.first}\nATHENA: ${it.second}" }
-                val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Explain clearly and simply. Do not invent facts or citations. Use the provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If the excerpts do not contain the answer, say that clearly.\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
+                    else evidence.joinToString("\\n\\n").take(1800)
+                chatHistory.clear()
+                val savedHistory = try { JSONArray(prefs.getString(chatHistoryKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+                for (i in 0 until savedHistory.length()) {
+                    val turn = savedHistory.optJSONObject(i) ?: continue
+                    chatHistory.add(turn.optString("q") to turn.optString("a"))
+                }
+                val historyText = chatHistory.takeLast(2).joinToString("\\n") { "User: ${it.first}\\nATHENA: ${it.second}" }
+                val learnerContext = prefs.getString("learner_personalization", "")?.take(2500).orEmpty()
+                val prompt = "<|im_start|>system\\nYou are ATHENA, a careful student study tutor. Adapt your explanations to the learner profile below. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If excerpts do not support the answer, say so and separate general knowledge from notes. If unsure, admit it.\\n\\nLEARNER PROFILE:\\n$learnerContext\\n\\nSTUDY EXCERPTS:\\n$contextText\\n\\nRECENT CHAT:\\n$historyText<|im_end|>\\n<|im_start|>user\\n$question<|im_end|>\\n<|im_start|>assistant\\n"
                 reset("ATHENA is thinking…", "Running the model locally on your phone. No question is sent to a cloud AI service.")
                 Thread {
                     try {
                         val answer = nativeEngine.nativeGenerate(prompt, 256)
                         chatHistory.add(question to answer)
+                        val saved = JSONArray()
+                        chatHistory.takeLast(8).forEach { turn -> saved.put(JSONObject().put("q", turn.first).put("a", turn.second)) }
+                        prefs.edit().putString(chatHistoryKey(profile), saved.toString()).apply()
                         runOnUiThread {
                             val view = TextView(this).apply {
                                 text = answer; textSize = 15f; setTextColor(Color.WHITE)
@@ -976,31 +1016,61 @@ class MainActivity : Activity() {
             }.show()
     }
 
+    private fun recognizeBitmap(bitmap: Bitmap): String {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val devanagari = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+        return try {
+            val latinText = Tasks.await(latin.process(image)).text.trim()
+            val devanagariText = Tasks.await(devanagari.process(image)).text.trim()
+            when {
+                devanagariText.length > latinText.length * 1.15 -> devanagariText
+                latinText.isBlank() -> devanagariText
+                devanagariText.isBlank() -> latinText
+                else -> (latinText + "\\n" + devanagariText).lines().distinct().joinToString("\\n")
+            }
+        } finally {
+            latin.close()
+            devanagari.close()
+        }
+    }
+
+    private fun extractImageText(file: File): String {
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+            ?: throw IllegalArgumentException("Image could not be decoded.")
+        try { return recognizeBitmap(bitmap) }
+        finally { bitmap.recycle() }
+    }
+
     private fun extractPdfPagesWithOcr(file: File): List<String> {
         PDDocument.load(file).use { document ->
             val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = AndroidPdfRenderer(pfd)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val result = mutableListOf<String>()
-            for (pageIndex in 0 until document.numberOfPages) {
-                val stripper = PDFTextStripper().apply { startPage = pageIndex + 1; endPage = pageIndex + 1 }
-                var text = stripper.getText(document).trim()
-                if (text.isBlank()) {
-                    val page = renderer.openPage(pageIndex)
-                    val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
-                    page.render(bitmap, null, null, AndroidPdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    page.close()
-                    try {
-                        val image = InputImage.fromBitmap(bitmap, 0)
-                        text = Tasks.await(recognizer.process(image)).text
-                    } finally { bitmap.recycle() }
+            try {
+                val result = mutableListOf<String>()
+                for (pageIndex in 0 until document.numberOfPages) {
+                    val stripper = PDFTextStripper().apply { startPage = pageIndex + 1; endPage = pageIndex + 1 }
+                    var text = stripper.getText(document).trim()
+                    if (text.isBlank()) {
+                        val page = renderer.openPage(pageIndex)
+                        try {
+                            val scale = minOf(1f, 1800f / maxOf(page.width, page.height))
+                            val width = (page.width * scale).toInt().coerceAtLeast(1)
+                            val height = (page.height * scale).toInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            try {
+                                page.render(bitmap, null, null, AndroidPdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                text = recognizeBitmap(bitmap)
+                            } finally { bitmap.recycle() }
+                        } finally { page.close() }
+                    }
+                    result.add(text)
                 }
-                result.add(text)
+                return result
+            } finally {
+                renderer.close()
+                pfd.close()
             }
-            recognizer.close()
-            renderer.close()
-            pfd.close()
-            return result
         }
     }
 
