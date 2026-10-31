@@ -3,12 +3,21 @@
 #include <vector>
 #include <algorithm>
 #include <unistd.h>
+#include <mutex>
+#include <cstdio>
 #include "llama.h"
 
 static llama_model *g_model = nullptr;
 static llama_context *g_ctx = nullptr;
 static const llama_vocab *g_vocab = nullptr;
 static bool g_backend_initialized = false;
+static std::mutex g_engine_mutex;
+
+static void write_stage(const std::string &path, const char *stage) {
+    if (path.empty()) return;
+    FILE *file = fopen(path.c_str(), "w");
+    if (file) { fputs(stage, file); fflush(file); fclose(file); }
+}
 
 static std::string to_utf8(JNIEnv *env, jstring value) {
     std::string out;
@@ -68,6 +77,7 @@ static jstring from_utf8(JNIEnv *env, const std::string &value) {
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpath) {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
     if (g_ctx) { llama_free(g_ctx); g_ctx = nullptr; }
     if (g_model) { llama_model_free(g_model); g_model = nullptr; }
     g_vocab = nullptr;
@@ -77,9 +87,9 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
     g_model = llama_model_load_from_file(path.c_str(), mp);
     if (!g_model) return JNI_FALSE;
     auto cp = llama_context_default_params();
-    cp.n_ctx = 512;
-    cp.n_batch = 32;
-    cp.n_ubatch = 16;
+    cp.n_ctx = 256;
+    cp.n_batch = 16;
+    cp.n_ubatch = 8;
     cp.n_threads = 2;
     cp.n_threads_batch = 2;
     g_ctx = llama_init_from_model(g_model, cp);
@@ -89,9 +99,13 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring jprompt, jint maxTokens) {
+Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring jprompt, jint maxTokens, jstring jstagePath) {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+    const std::string stage_path = to_utf8(env, jstagePath);
+    write_stage(stage_path, "entered_native_generate");
     if (!g_model || !g_ctx || !g_vocab) return from_utf8(env, "Model is not loaded.");
     const std::string prompt = to_utf8(env, jprompt);
+    write_stage(stage_path, "converted_prompt");
     llama_memory_clear(llama_get_memory(g_ctx), true);
     std::vector<llama_token> tokens(std::max<size_t>(prompt.size() + 16, 256));
     int32_t n = llama_tokenize(g_vocab, prompt.c_str(), (int32_t)prompt.size(),
@@ -101,36 +115,45 @@ Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring
         n = llama_tokenize(g_vocab, prompt.c_str(), (int32_t)prompt.size(),
                            tokens.data(), (int32_t)tokens.size(), true, true);
     }
-    if (n <= 0) return from_utf8(env, "Could not tokenize the question.");
+    if (n <= 0) { write_stage(stage_path, "tokenization_failed"); return from_utf8(env, "Could not tokenize the question."); }
+    write_stage(stage_path, "tokenized_prompt");
     const int context = (int)llama_n_ctx(g_ctx);
     const int limit = std::max(1, std::min((int)maxTokens, 48));
     if (n >= context - 8 || n + limit >= context) {
+        write_stage(stage_path, "prompt_exceeds_context");
         return from_utf8(env, "This question and its notes are too long for the phone's local context. Please shorten the question or use fewer notes.");
     }
     tokens.resize(n);
     auto batch = llama_batch_get_one(tokens.data(), n);
-    if (llama_decode(g_ctx, batch) != 0) return from_utf8(env, "Prompt processing failed. Try a shorter question.");
+    write_stage(stage_path, "before_prompt_decode");
+    if (llama_decode(g_ctx, batch) != 0) { write_stage(stage_path, "prompt_decode_returned_error"); return from_utf8(env, "Prompt processing failed. Try a shorter question."); }
+    write_stage(stage_path, "prompt_decoded");
     auto sp = llama_sampler_chain_default_params();
     llama_sampler *sampler = llama_sampler_chain_init(sp);
     if (!sampler) return from_utf8(env, "Could not initialize the text sampler.");
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
     std::string output;
     char piece[512];
+    write_stage(stage_path, "before_token_generation");
     for (int i = 0; i < limit; ++i) {
+        write_stage(stage_path, "sampling_token");
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
         if (llama_vocab_is_eog(g_vocab, token)) break;
         llama_sampler_accept(sampler, token);
         int len = llama_token_to_piece(g_vocab, token, piece, sizeof(piece), 0, true);
         if (len > 0) output.append(piece, (size_t)len);
         batch = llama_batch_get_one(&token, 1);
-        if (llama_decode(g_ctx, batch) != 0) break;
+        write_stage(stage_path, "decoding_generated_token");
+        if (llama_decode(g_ctx, batch) != 0) { write_stage(stage_path, "generated_token_decode_error"); break; }
     }
     llama_sampler_free(sampler);
+    write_stage(stage_path, "generation_complete");
     return from_utf8(env, output);
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_athena_offline_NativeLlama_nativeUnload(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
     if (g_ctx) { llama_free(g_ctx); g_ctx = nullptr; }
     if (g_model) { llama_model_free(g_model); g_model = nullptr; }
     g_vocab = nullptr;
