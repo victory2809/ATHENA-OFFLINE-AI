@@ -591,6 +591,7 @@ class MainActivity : Activity() {
     private fun showProfessor() {
         reset("🧠 ATHENA Professor", "Ask questions by typing or speaking. Voice input uses the speech service available on your phone.")
         action("🧩 MODEL SETUP / STATUS") { showModelManager() }
+        action("🛠 INFERENCE DIAGNOSTICS") { showInferenceDiagnostics() }
         action("✨ PERSONALIZE ATHENA") { personalizeAthena() }
         action("💬 ASK OFFLINE AI — ALL NOTES") { askOfflineAi(null) }
         profiles.forEach { p -> action("💬 ASK OFFLINE AI — $p") { askOfflineAi(p) } }
@@ -871,6 +872,27 @@ class MainActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    private fun showInferenceDiagnostics() {
+        val stageFile = File(filesDir, "athena_inference_stage.txt")
+        val stage = if (stageFile.exists()) stageFile.readText().take(4000) else "No inference stage file found. No generation attempt has been recorded yet."
+        val pending = prefs.getString("pending_ai_question", null)
+        val details = "Last native inference stage:\n$stage\n\nPending question saved: ${if (pending.isNullOrBlank()) "No" else "Yes"}\nModel loaded in this app session: ${if (modelLoaded) "Yes" else "No"}\nStage file updated: ${if (stageFile.exists()) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(java.util.Date(stageFile.lastModified())) else "N/A"}"
+        val view = TextView(this).apply {
+            text = details
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        AlertDialog.Builder(this).setTitle("ATHENA • Inference diagnostics")
+            .setView(ScrollView(this).apply { addView(view) })
+            .setPositiveButton("COPY") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ATHENA diagnostics", details))
+                Toast.makeText(this, "Diagnostics copied. Paste them into ChatGPT.", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("CLOSE", null).show()
     }
 
     private var pendingVoiceProfile: String? = null
