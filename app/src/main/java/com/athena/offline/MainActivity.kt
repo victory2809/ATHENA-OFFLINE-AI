@@ -746,6 +746,12 @@ class MainActivity : Activity() {
                                     modelLoaded = true
                                     Toast.makeText(this, "Offline AI model loaded successfully.", Toast.LENGTH_LONG).show()
                                     showProfessor()
+                                    val queuedQuestion = prefs.getString("pending_ai_question", null)
+                                    if (!queuedQuestion.isNullOrBlank()) {
+                                        val queuedProfile = prefs.getString("pending_ai_profile", "").orEmpty().ifBlank { null }
+                                        prefs.edit().remove("pending_ai_question").remove("pending_ai_profile").apply()
+                                        generateOfflineAnswer(queuedProfile, queuedQuestion)
+                                    }
                                 } else {
                                     AlertDialog.Builder(this).setTitle("Model could not load")
                                         .setMessage("The native engine could not load this model. Close other apps and retry. This device has not yet been performance-tested.")
@@ -814,46 +820,52 @@ class MainActivity : Activity() {
                     return@setPositiveButton
                 }
                 if (!modelLoaded) {
-                    Toast.makeText(this, "Loading the local model now. Ask your question again when it is ready.", Toast.LENGTH_LONG).show()
+                    prefs.edit().putString("pending_ai_question", question)
+                        .putString("pending_ai_profile", profile ?: "").apply()
+                    Toast.makeText(this, "Loading the local model. Your question is saved and will run automatically.", Toast.LENGTH_LONG).show()
                     verifyAndLoadModel(modelFile())
                     return@setPositiveButton
                 }
-                val evidence = retrieveStudyContext(profile, question)
-                val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
-                    else evidence.joinToString("\n\n").take(700)
-                chatHistory.clear()
-                val savedHistory = try { JSONArray(prefs.getString(chatHistoryKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
-                for (i in 0 until savedHistory.length()) {
-                    val turn = savedHistory.optJSONObject(i) ?: continue
-                    chatHistory.add(turn.optString("q") to turn.optString("a"))
-                }
-                val historyText = chatHistory.takeLast(1).joinToString("\n") { "User: ${it.first.take(180)}\nATHENA: ${it.second.take(180)}" }
-                val learnerContext = prefs.getString("learner_personalization", "")?.take(700).orEmpty()
-                val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Adapt your explanations to the learner profile below. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If excerpts do not support the answer, say so and separate general knowledge from notes. If unsure, admit it.\n\nLEARNER PROFILE:\n$learnerContext\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
-                reset("ATHENA is thinking…", "Running the model locally on your phone. No question is sent to a cloud AI service.")
-                Thread {
-                    try {
-                        val answer = nativeEngine.nativeGenerate(prompt, 96)
-                        chatHistory.add(question to answer)
-                        val saved = JSONArray()
-                        chatHistory.takeLast(8).forEach { turn -> saved.put(JSONObject().put("q", turn.first).put("a", turn.second)) }
-                        prefs.edit().putString(chatHistoryKey(profile), saved.toString()).apply()
-                        runOnUiThread {
-                            val view = TextView(this).apply {
-                                text = answer; textSize = 15f; setTextColor(Color.WHITE)
-                                setPadding(dp(18), dp(14), dp(18), dp(14))
-                            }
-                            AlertDialog.Builder(this).setTitle("ATHENA • Offline answer")
-                                .setView(ScrollView(this).apply { addView(view) })
-                                .setPositiveButton("ASK ANOTHER") { _, _ -> askOfflineAi(profile) }
-                                .setNegativeButton("CLOSE") { _, _ -> showProfessor() }.show()
-                        }
-                    } catch (e: Exception) {
-                        runOnUiThread { AlertDialog.Builder(this).setMessage("Generation failed: ${e.message}")
-                            .setPositiveButton("OK") { _, _ -> showProfessor() }.show() }
-                    }
-                }.start()
+                generateOfflineAnswer(profile, question)
             }.show()
+    }
+
+    private fun generateOfflineAnswer(profile: String?, question: String) {
+        val evidence = retrieveStudyContext(profile, question)
+        val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
+            else evidence.joinToString("\n\n").take(700)
+        chatHistory.clear()
+        val savedHistory = try { JSONArray(prefs.getString(chatHistoryKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        for (i in 0 until savedHistory.length()) {
+            val turn = savedHistory.optJSONObject(i) ?: continue
+            chatHistory.add(turn.optString("q") to turn.optString("a"))
+        }
+        val historyText = chatHistory.takeLast(1).joinToString("\n") { "User: ${it.first.take(180)}\nATHENA: ${it.second.take(180)}" }
+        val learnerContext = prefs.getString("learner_personalization", "")?.take(700).orEmpty()
+        val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided excerpts when relevant. If unsure, admit it.\n\nLEARNER PROFILE:\n$learnerContext\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
+        reset("ATHENA is thinking…", "Generating your answer locally. Keep ATHENA open; the first answer may take time.")
+        Thread {
+            try {
+                val answer = nativeEngine.nativeGenerate(prompt, 96).ifBlank { "ATHENA could not generate an answer. Try a shorter question." }
+                chatHistory.add(question to answer)
+                val saved = JSONArray()
+                chatHistory.takeLast(8).forEach { turn -> saved.put(JSONObject().put("q", turn.first).put("a", turn.second)) }
+                prefs.edit().putString(chatHistoryKey(profile), saved.toString()).apply()
+                runOnUiThread {
+                    val view = TextView(this).apply { text = answer; textSize = 15f; setTextColor(Color.WHITE); setPadding(dp(18), dp(14), dp(18), dp(14)) }
+                    AlertDialog.Builder(this).setTitle("ATHENA • Offline answer")
+                        .setView(ScrollView(this).apply { addView(view) })
+                        .setPositiveButton("ASK ANOTHER") { _, _ -> askOfflineAi(profile) }
+                        .setNegativeButton("CLOSE") { _, _ -> showProfessor() }.show()
+                }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    AlertDialog.Builder(this).setTitle("ATHENA generation error")
+                        .setMessage("The local engine could not finish this answer: ${e.message ?: e.javaClass.simpleName}")
+                        .setPositiveButton("OK") { _, _ -> showProfessor() }.show()
+                }
+            }
+        }.start()
     }
 
     private var pendingVoiceProfile: String? = null
