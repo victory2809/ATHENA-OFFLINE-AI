@@ -200,7 +200,7 @@ class MainActivity : Activity() {
         profiles.toList().forEach { name ->
             val docs = documents(name)
             card(name, "${docs.length()} document(s) stored locally.")
-            action("IMPORT PDF / TXT INTO $name") { pickDocument(name) }
+            action("IMPORT PDF / TXT INTO $name") { chooseSubjectAndImport(name) }
             action("＋ PASTE TRANSCRIPT / AI NOTES") { pasteText(name) }
             action("＋ ADD SUBJECT FOLDER") { addSubject(name) }
             action("SEARCH THIS PROFILE") { searchProfile(name) }
@@ -208,6 +208,7 @@ class MainActivity : Activity() {
                 val doc = docs.optJSONObject(i) ?: continue
                 val docName = doc.optString("name", "Document")
                 val chars = doc.optInt("characters", 0)
+                val subject = doc.optString("subject", "Unsorted")
                 action("[$subject] READ: $docName ($chars characters)") { previewDocument(name, doc) }
                 action("DELETE: $docName") { deleteDocument(name, doc.optString("id")) }
             }
@@ -237,6 +238,16 @@ class MainActivity : Activity() {
                     profiles.add(name); saveProfiles(); showKnowledge()
                 } else Toast.makeText(this, "Enter a unique profile name.", Toast.LENGTH_SHORT).show()
             }.show()
+    }
+
+
+    private fun chooseSubjectAndImport(profile: String) {
+        val options = listOf("Unsorted") + subjects(profile)
+        AlertDialog.Builder(this).setTitle("Choose subject folder")
+            .setItems(options.toTypedArray()) { _, which ->
+                currentImportSubject[profile] = options[which]
+                pickDocument(profile)
+            }.setNegativeButton("CANCEL", null).show()
     }
 
     private fun pickDocument(profile: String) {
@@ -318,17 +329,19 @@ class MainActivity : Activity() {
         }
         var textFile: File? = null
         try {
-            val extracted = if (isPdf) extractPdf(sourceFile) else sourceFile.readText(Charsets.UTF_8)
-            require(extracted.isNotBlank()) {
-                "This PDF appears scanned/image-only and has no selectable text layer. OCR is planned; meanwhile paste its transcript or OCR text."
-            }
+            val pageTexts = if (isPdf) extractPdfPagesWithOcr(sourceFile) else listOf(sourceFile.readText(Charsets.UTF_8))
+            val extracted = pageTexts.joinToString("\\u000c") { it }
+            require(extracted.isNotBlank()) { "No readable text found. The PDF may be encrypted, damaged, or blank." }
             textFile = File(dir, "${id}_extracted.txt")
             textFile.writeText(extracted, Charsets.UTF_8)
-            val pages = if (isPdf) countPdfPages(sourceFile) else 1
+            val pageFile = File(dir, "${id}_pages.json")
+            pageFile.writeText(JSONArray(pageTexts).toString(), Charsets.UTF_8)
+            val pages = pageTexts.size
             val docs = documents(profile)
             docs.put(JSONObject().apply {
                 put("id", id); put("name", originalName); put("source", sourceFile.name)
                 put("text", textFile.name); put("pages", pages); put("characters", extracted.length)
+                put("pageText", pageFile.name); put("subject", selectedSubject(profile))
             })
             saveDocuments(profile, docs)
         } catch (e: Exception) {
@@ -431,6 +444,7 @@ class MainActivity : Activity() {
             if (doc.optString("id") == id) {
                 File(profileDir(profile), doc.optString("source")).delete()
                 File(profileDir(profile), doc.optString("text")).delete()
+                File(profileDir(profile), doc.optString("pageText")).delete()
             } else kept.put(doc)
         }
         saveDocuments(profile, kept)
