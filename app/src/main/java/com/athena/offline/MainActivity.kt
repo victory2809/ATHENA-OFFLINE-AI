@@ -267,6 +267,14 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated by Android; retained for compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 42) {
+            if (resultCode == RESULT_OK && data != null) {
+                val spoken = data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+                if (spoken.isNotBlank()) searchDocuments(pendingVoiceProfile, spoken)
+            }
+            pendingVoiceProfile = null
+            return
+        }
         if (requestCode != 41 || resultCode != RESULT_OK || data == null) return
         val profile = importingInto ?: return
         val uris = mutableListOf<Uri>()
@@ -521,11 +529,48 @@ class MainActivity : Activity() {
     }
 
     private fun showProfessor() {
-        reset("ATHENA Professor", "Ask questions against your imported notes. Answers show matching source passages; this is local retrieval, not a generative LLM yet.")
+        reset("🧠 ATHENA Professor", "Ask questions by typing or speaking. Voice input uses the speech service available on your phone.")
         action("ASK FROM ALL MATERIALS") { askQuestion(null) }
-        profiles.forEach { p -> action("ASK FROM $p") { askQuestion(p) } }
-        action("READ ANSWER ALOUD") { if (ttsReady) tts?.speak("ATHENA local study assistant. Answers are based on matching passages in your saved notes.", TextToSpeech.QUEUE_FLUSH, null, "athena") }
+        action("🎙 TAP TO SPEAK") { startVoiceQuestion(null) }
+        profiles.forEach { p -> action("ASK FROM $p") { askQuestion(p) }
+        action("🎙 SPEAK — $p") { startVoiceQuestion(p) } }
+        action("🔊 VOICE LANGUAGE") { chooseSpeechLanguage() }
+        action("🔊 READ SAMPLE ALOUD") { speak("Hello! नमस्कार! मी ATHENA आहे. नमस्ते! मैं ATHENA हूँ।") }
         card("OFFLINE STATUS", "Text search and evidence retrieval run locally. A full offline generative language model is not yet bundled.")
+    }
+
+
+    private var pendingVoiceProfile: String? = null
+
+    private fun startVoiceQuestion(profile: String?) {
+        val langs = arrayOf("English", "हिन्दी", "मराठी")
+        AlertDialog.Builder(this).setTitle("Choose voice input language").setItems(langs) { _, which ->
+            val locale = when (which) { 1 -> "hi-IN"; 2 -> "mr-IN"; else -> "en-IN" }
+            try {
+                val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, locale)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak your study question")
+                }
+                pendingVoiceProfile = profile
+                startActivityForResult(intent, 42)
+            } catch (_: Exception) { Toast.makeText(this, "Speech recognition service is unavailable.", Toast.LENGTH_LONG).show() }
+        }.setNegativeButton("CANCEL", null).show()
+    }
+
+    private fun chooseSpeechLanguage() {
+        val langs = arrayOf("English", "हिन्दी", "मराठी", "System default")
+        AlertDialog.Builder(this).setTitle("ATHENA speech language").setItems(langs) { _, which ->
+            val locale = when (which) { 1 -> Locale("hi", "IN"); 2 -> Locale("mr", "IN"); 0 -> Locale("en", "IN"); else -> Locale.getDefault() }
+            val status = tts?.setLanguage(locale)
+            if (status == TextToSpeech.LANG_MISSING_DATA || status == TextToSpeech.LANG_NOT_SUPPORTED) Toast.makeText(this, "Voice data is not installed. Add it in Android Text-to-speech settings.", Toast.LENGTH_LONG).show()
+            else speak("Hello! नमस्कार! नमस्कार!")
+        }.setNegativeButton("CANCEL", null).show()
+    }
+
+    private fun speak(text: String) {
+        if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "athena_voice")
+        else Toast.makeText(this, "Speech engine is starting.", Toast.LENGTH_SHORT).show()
     }
 
     private fun askQuestion(profile: String?) {
