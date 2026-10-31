@@ -601,6 +601,7 @@ class MainActivity : Activity() {
     private val modelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     private val modelSha256 = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
     private val nativeEngine by lazy { NativeLlama() }
+    private var modelLoaded = false
     private fun modelFile(): File = File(getExternalFilesDir(null) ?: filesDir, "models/$modelName")
 
     private fun showModelManager() {
@@ -608,7 +609,7 @@ class MainActivity : Activity() {
         reset("Offline AI engine", "Native llama.cpp • ARM64 CPU • model stored separately from the APK")
         card("ENGINE", "llama.cpp native runtime is packaged in this build. The language model is a separate download.")
         card("MODEL", "Qwen2.5 0.5B Instruct • Q4_K_M • approximately 491 MB • Apache-2.0")
-        card("STORAGE", if (file.exists()) "Model file: ${file.length() / (1024 * 1024)} MB" else "Model is not downloaded yet. Keep at least 1 GB free before downloading.")
+        card("STORAGE", if (file.exists()) "Model file: ${file.length() / (1024 * 1024)} MB • " + if (modelLoaded) "loaded in memory" else "not loaded into memory" else "Model is not downloaded yet. Keep at least 1 GB free before downloading.")
         if (file.exists()) {
             action("⚡ VERIFY & LOAD LOCAL MODEL") { verifyAndLoadModel(file) }
             action("🗑 DELETE DOWNLOADED MODEL") {
@@ -710,6 +711,7 @@ class MainActivity : Activity() {
                             val ok = nativeEngine.nativeLoad(file.absolutePath)
                             runOnUiThread {
                                 if (ok) {
+                                    modelLoaded = true
                                     Toast.makeText(this, "Offline AI model loaded successfully.", Toast.LENGTH_LONG).show()
                                     showProfessor()
                                 } else {
@@ -777,6 +779,11 @@ class MainActivity : Activity() {
                 if (!modelFile().exists()) {
                     AlertDialog.Builder(this).setMessage("Download and load the offline model first.")
                         .setPositiveButton("OPEN MODEL MANAGER") { _, _ -> showModelManager() }.show()
+                    return@setPositiveButton
+                }
+                if (!modelLoaded) {
+                    Toast.makeText(this, "Loading the local model now. Ask your question again when it is ready.", Toast.LENGTH_LONG).show()
+                    verifyAndLoadModel(modelFile())
                     return@setPositiveButton
                 }
                 val evidence = retrieveStudyContext(profile, question)
