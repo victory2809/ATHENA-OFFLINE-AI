@@ -602,6 +602,7 @@ class MainActivity : Activity() {
     private val modelSha256 = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
     private val nativeEngine by lazy { NativeLlama() }
     private var modelLoaded = false
+    private val chatHistory = mutableListOf<Pair<String, String>>()
     private fun modelFile(): File = File(getExternalFilesDir(null) ?: filesDir, "models/$modelName")
 
     private fun showModelManager() {
@@ -617,6 +618,7 @@ class MainActivity : Activity() {
                     .setMessage("This removes the downloaded 491 MB model. Your notes and profiles remain untouched.")
                     .setNegativeButton("CANCEL", null).setPositiveButton("DELETE") { _, _ ->
                         try { nativeEngine.nativeUnload() } catch (_: Exception) { }
+                        modelLoaded = false
                         file.delete()
                         showModelManager()
                     }.show()
@@ -752,18 +754,18 @@ class MainActivity : Activity() {
                 if (pages.length() == 0 && textFile.exists()) {
                     textFile.readText(Charsets.UTF_8).split("\\u000c").forEachIndexed { idx, page ->
                         val score = terms.count { page.lowercase().contains(it) }
-                        if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${idx + 1}", page.take(1400)))
+                        if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${idx + 1}", page.take(850)))
                     }
                 } else {
                     for (page in 0 until pages.length()) {
                         val body = pages.optString(page)
                         val score = terms.count { body.lowercase().contains(it) }
-                        if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${page + 1}", body.take(1400)))
+                        if (score > 0) candidates.add(Triple(score, "${d.optString("name")} • page ${page + 1}", body.take(850)))
                     }
                 }
             }
         }
-        return candidates.sortedByDescending { it.first }.take(4)
+        return candidates.sortedByDescending { it.first }.take(3)
             .map { "[Source: ${it.second}]\\n${it.third}" }
     }
 
@@ -794,6 +796,7 @@ class MainActivity : Activity() {
                 Thread {
                     try {
                         val answer = nativeEngine.nativeGenerate(prompt, 256)
+                        chatHistory.add(question to answer)
                         runOnUiThread {
                             val view = TextView(this).apply {
                                 text = answer; textSize = 15f; setTextColor(Color.WHITE)
@@ -1019,6 +1022,7 @@ class MainActivity : Activity() {
         }
 
     override fun onDestroy() {
+        if (modelLoaded) { try { nativeEngine.nativeUnload() } catch (_: Exception) { }; modelLoaded = false }
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
