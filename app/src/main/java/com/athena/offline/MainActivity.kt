@@ -3,6 +3,7 @@ package com.athena.offline
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.database.Cursor
 import android.graphics.Color
 import android.graphics.Typeface
@@ -20,6 +21,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.*
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -150,22 +152,68 @@ class MainActivity : Activity() {
     }
 
     private fun card(title: String, body: String) {
+        val shape = gradient(Color.rgb(25, 39, 65), Color.rgb(13, 21, 37), 18, Color.rgb(48, 78, 121))
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = gradient(Color.rgb(25, 39, 65), Color.rgb(13, 21, 37), 18, Color.rgb(48, 78, 121))
-            setPadding(dp(17), dp(16), dp(17), dp(16))
-            elevation = dp(2).toFloat()
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(Color.argb(55, 100, 180, 255)), shape, null
+            )
+            setPadding(dp(18), dp(17), dp(18), dp(17))
+            elevation = dp(3).toFloat()
+            isClickable = true
+            isFocusable = true
+            setOnTouchListener { view, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> view.animate().scaleX(0.985f).scaleY(0.985f).setDuration(90).start()
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                        view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
+                }
+                false
+            }
         }
         box.addView(TextView(this).apply {
             text = title; textSize = 16f; setTextColor(accent)
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
-            letterSpacing = 0.025f
+            letterSpacing = 0.035f
         })
         box.addView(TextView(this).apply {
             text = body; textSize = 14f; setTextColor(Color.rgb(207, 216, 230))
-            setLineSpacing(dp(3).toFloat(), 1f); setPadding(0, dp(8), 0, 0)
+            setLineSpacing(dp(4).toFloat(), 1.02f); setPadding(0, dp(9), 0, 0)
         })
-        content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(13) })
+    }
+
+    private fun addHeroArtwork() {
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = gradient(Color.rgb(24, 76, 132), Color.rgb(17, 31, 59), 22, Color.rgb(74, 145, 230))
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            elevation = dp(5).toFloat()
+        }
+        val copy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        copy.addView(TextView(this).apply {
+            text = "YOUR KNOWLEDGE. YOUR POWER."
+            textSize = 11f; letterSpacing = 0.09f
+            setTextColor(Color.rgb(174, 211, 255)); typeface = Typeface.DEFAULT_BOLD
+        })
+        copy.addView(TextView(this).apply {
+            text = "Think deeper.\nLearn beyond limits."
+            textSize = 21f; setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            setPadding(0, dp(7), 0, dp(5))
+        })
+        copy.addView(TextView(this).apply {
+            text = "✦  OFFLINE-FIRST STUDY SPACE"
+            textSize = 10f; letterSpacing = 0.05f
+            setTextColor(Color.rgb(204, 225, 250))
+        })
+        hero.addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
+        hero.addView(TextView(this).apply {
+            text = "🧠\n⚡"; textSize = 39f; gravity = Gravity.CENTER
+            setPadding(dp(7), 0, dp(2), 0)
+        })
+        content.addView(hero, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(15) })
     }
 
     private fun action(label: String, onClick: () -> Unit) {
@@ -184,6 +232,7 @@ class MainActivity : Activity() {
     private fun showHome() {
         val totalDocs = profiles.sumOf { documents(it).length() }
         reset("✨ Your study command centre", "Learn smarter. Stay consistent. Keep your knowledge private.")
+        addHeroArtwork()
         card("🔒 LOCAL FIRST", "Your profiles and imported study files are stored privately in this app.")
         card("📚 DOCUMENT LIBRARY", "$totalDocs document(s) imported on this device.")
         card("⚡ STUDY TOOLS", "Search, evidence-based answers, viva practice, tests and a local study planner are available.")
@@ -191,7 +240,7 @@ class MainActivity : Activity() {
         action("📚 OPEN KNOWLEDGE MANAGER") { showKnowledge() }
         action("🔎 SEARCH ALL STUDY MATERIALS") { searchAll() }
         action("ABOUT THIS BUILD") {
-            Toast.makeText(this, "ATHENA v0.2.0 — local PDF/TXT import and extraction.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ATHENA v0.7.0 — visual refresh and touch feedback.", Toast.LENGTH_LONG).show()
         }
     }
 
