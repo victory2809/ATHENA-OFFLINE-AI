@@ -6,6 +6,7 @@ import android.content.Intent
 import android.database.Cursor
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -31,6 +32,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = Color.rgb(5, 9, 18)
+        window.navigationBarColor = Color.rgb(5, 9, 18)
         PDFBoxResourceLoader.init(applicationContext)
         loadProfiles()
         buildShell()
@@ -75,7 +78,8 @@ class MainActivity : Activity() {
         val header = TextView(this).apply {
             text = "ATHENA  /  OFFLINE STUDY INTELLIGENCE"
             setTextColor(accent); textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD; letterSpacing = 0.08f
+            typeface = Typeface.DEFAULT_BOLD; letterSpacing = 0.11f
+            setPadding(dp(2), dp(4), dp(2), dp(4))
         }
         root.addView(header)
         root.addView(View(this).apply { setBackgroundColor(Color.rgb(38, 54, 80)) },
@@ -90,7 +94,9 @@ class MainActivity : Activity() {
         listOf("HOME", "PROFESSOR", "KNOWLEDGE", "EXAM", "STUDY").forEach { label ->
             val button = Button(this).apply {
                 text = label; textSize = 8f; setTextColor(Color.WHITE)
-                setBackgroundTintList(android.content.res.ColorStateList.valueOf(panel))
+                isAllCaps = false
+                background = rounded(if (label == "HOME") Color.rgb(27, 48, 82) else panel, 12)
+                elevation = dp(3).toFloat()
                 setOnClickListener {
                     when (label) {
                         "HOME" -> showHome()
@@ -110,25 +116,33 @@ class MainActivity : Activity() {
     private fun reset(title: String, subtitle: String? = null) {
         content.removeAllViews()
         content.addView(TextView(this).apply {
-            text = title; textSize = 27f; setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, dp(4))
+            text = title; textSize = 29f; setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            setPadding(0, dp(12), 0, dp(7))
+            letterSpacing = -0.015f
         })
         if (subtitle != null) content.addView(TextView(this).apply {
-            text = subtitle; textSize = 13f; setTextColor(Color.LTGRAY)
-            setPadding(0, 0, 0, dp(16))
+            text = subtitle; textSize = 14f; setTextColor(Color.rgb(174, 187, 207))
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setPadding(0, 0, 0, dp(20))
         })
     }
 
     private fun card(title: String, body: String) {
         val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setBackgroundColor(panel)
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            orientation = LinearLayout.VERTICAL
+            background = rounded(panel, 18, Color.rgb(37, 58, 91))
+            setPadding(dp(17), dp(16), dp(17), dp(16))
+            elevation = dp(2).toFloat()
         }
         box.addView(TextView(this).apply {
-            text = title; textSize = 16f; setTextColor(accent); typeface = Typeface.DEFAULT_BOLD
+            text = title; textSize = 16f; setTextColor(accent)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            letterSpacing = 0.025f
         })
         box.addView(TextView(this).apply {
-            text = body; textSize = 13f; setTextColor(Color.LTGRAY); setPadding(0, dp(7), 0, 0)
+            text = body; textSize = 14f; setTextColor(Color.rgb(207, 216, 230))
+            setLineSpacing(dp(3).toFloat(), 1f); setPadding(0, dp(8), 0, 0)
         })
         content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
     }
@@ -136,7 +150,11 @@ class MainActivity : Activity() {
     private fun action(label: String, onClick: () -> Unit) {
         val button = Button(this).apply {
             text = label; textSize = 13f; setTextColor(Color.WHITE)
-            setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent))
+            isAllCaps = false
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            background = rounded(accent, 13)
+            elevation = dp(4).toFloat()
+            setPadding(dp(10), 0, dp(10), 0)
             setOnClickListener { onClick() }
         }
         content.addView(button, LinearLayout.LayoutParams(-1, dp(50)).apply { bottomMargin = dp(10) })
@@ -331,6 +349,13 @@ class MainActivity : Activity() {
         reset(section, "This section is reserved in the ATHENA roadmap.")
         card("COMING IN A LATER BUILD", "The offline AI model, grounded professor chat, exam tools and voice service still need to be integrated and tested.")
     }
+
+    private fun rounded(fill: Int, radiusDp: Int, stroke: Int? = null): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(fill)
+            cornerRadius = dp(radiusDp).toFloat()
+            if (stroke != null) setStroke(dp(1), stroke)
+        }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
