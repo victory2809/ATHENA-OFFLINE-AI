@@ -8,13 +8,14 @@
 static llama_model *g_model = nullptr;
 static llama_context *g_ctx = nullptr;
 static const llama_vocab *g_vocab = nullptr;
+static bool g_backend_initialized = false;
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpath) {
     if (g_ctx) { llama_free(g_ctx); g_ctx = nullptr; }
     if (g_model) { llama_model_free(g_model); g_model = nullptr; }
     const char *path = env->GetStringUTFChars(jpath, nullptr);
-    llama_backend_init();
+    if (!g_backend_initialized) { llama_backend_init(); g_backend_initialized = true; }
     auto mp = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mp);
     env->ReleaseStringUTFChars(jpath, path);
