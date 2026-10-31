@@ -608,7 +608,7 @@ class MainActivity : Activity() {
 
     private fun personalizeAthena() {
         val input = EditText(this).apply {
-            hint = "Example:\\nI am a 2nd-year AIML diploma student.\\nExplain from basics, step by step.\\nUse simple English with Marathi/Hindi support.\\nFor exams, structure answers for 2M/4M questions."
+            hint = "Example:\nI am a 2nd-year AIML diploma student.\nExplain from basics, step by step.\nUse simple English with Marathi/Hindi support.\nFor exams, structure answers for 2M/4M questions."
             setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
             minLines = 7; maxLines = 12; textSize = 14f
             setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -820,16 +820,16 @@ class MainActivity : Activity() {
                 }
                 val evidence = retrieveStudyContext(profile, question)
                 val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
-                    else evidence.joinToString("\\n\\n").take(1800)
+                    else evidence.joinToString("\n\n").take(1800)
                 chatHistory.clear()
                 val savedHistory = try { JSONArray(prefs.getString(chatHistoryKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
                 for (i in 0 until savedHistory.length()) {
                     val turn = savedHistory.optJSONObject(i) ?: continue
                     chatHistory.add(turn.optString("q") to turn.optString("a"))
                 }
-                val historyText = chatHistory.takeLast(2).joinToString("\\n") { "User: ${it.first}\\nATHENA: ${it.second}" }
+                val historyText = chatHistory.takeLast(2).joinToString("\n") { "User: ${it.first}\nATHENA: ${it.second}" }
                 val learnerContext = prefs.getString("learner_personalization", "")?.take(2500).orEmpty()
-                val prompt = "<|im_start|>system\\nYou are ATHENA, a careful student study tutor. Adapt your explanations to the learner profile below. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If excerpts do not support the answer, say so and separate general knowledge from notes. If unsure, admit it.\\n\\nLEARNER PROFILE:\\n$learnerContext\\n\\nSTUDY EXCERPTS:\\n$contextText\\n\\nRECENT CHAT:\\n$historyText<|im_end|>\\n<|im_start|>user\\n$question<|im_end|>\\n<|im_start|>assistant\\n"
+                val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Adapt your explanations to the learner profile below. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided study excerpts when relevant and cite them exactly using [Source: filename • page N]. If excerpts do not support the answer, say so and separate general knowledge from notes. If unsure, admit it.\n\nLEARNER PROFILE:\n$learnerContext\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
                 reset("ATHENA is thinking…", "Running the model locally on your phone. No question is sent to a cloud AI service.")
                 Thread {
                     try {
@@ -913,7 +913,7 @@ class MainActivity : Activity() {
             val file = File(profileDir(profile), d.optString("text"))
             if (!file.exists()) continue
             file.readText(Charsets.UTF_8)
-                .split(Regex("[.!?\\n]+"))
+                .split(Regex("[.!?\n]+"))
                 .map { it.trim().replace(Regex("\\s+"), " ") }
                 .filter { it.length in 55..320 }
                 .take(150)
@@ -934,7 +934,7 @@ class MainActivity : Activity() {
                     .putInt("revision_confident_$profile", prefs.getInt("revision_confident_$profile", 0) + confident)
                     .putInt("revision_review_$profile", prefs.getInt("revision_review_$profile", 0) + review).apply()
                 AlertDialog.Builder(this).setTitle("Revision session complete")
-                    .setMessage("Cards reviewed: ${cards.size}\\nConfident: $confident\\nNeeds another look: $review\\n\\nThese are your self-reported results, not automatic answer grading.")
+                    .setMessage("Cards reviewed: ${cards.size}\nConfident: $confident\nNeeds another look: $review\n\nThese are your self-reported results, not automatic answer grading.")
                     .setPositiveButton("DONE") { _, _ -> showExam() }.show()
                 return
             }
@@ -943,7 +943,7 @@ class MainActivity : Activity() {
             val words = passage.split(" ")
             val prompt = if (words.size > 13) words.take(7).joinToString(" ") + " …" else "Explain this idea in your own words."
             AlertDialog.Builder(this).setTitle("Recall ${index + 1}/${cards.size}")
-                .setMessage("Source: ${item.first}\\n\\n$prompt\\n\\nThink of the full explanation before revealing it.")
+                .setMessage("Source: ${item.first}\n\n$prompt\n\nThink of the full explanation before revealing it.")
                 .setNegativeButton("SKIP") { _, _ -> index++; nextCard() }
                 .setPositiveButton("REVEAL") { _, _ ->
                     AlertDialog.Builder(this).setTitle("Reference passage").setMessage(passage)
@@ -962,7 +962,7 @@ class MainActivity : Activity() {
             val d = docs.optJSONObject(i) ?: continue
             val f = File(profileDir(profile), d.optString("text"))
             if (!f.exists()) continue
-            f.readText(Charsets.UTF_8).split(Regex("[.!?\\n]")).map { it.trim() }
+            f.readText(Charsets.UTF_8).split(Regex("[.!?\n]")).map { it.trim() }
                 .filter { it.length in 45..240 }.take(80).forEach { pool.add(d.optString("name") to it) }
         }
         if (pool.isEmpty()) {
@@ -981,7 +981,7 @@ class MainActivity : Activity() {
             val pair = chosen[index]
             val answer = EditText(this).apply { hint = "Write your answer before revealing the reference"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); minLines = 3 }
             AlertDialog.Builder(this).setTitle("Viva ${index + 1}/${chosen.size}")
-                .setMessage("Explain this concept from ${pair.first}:\\n\\n${pair.second.take(190)}")
+                .setMessage("Explain this concept from ${pair.first}:\n\n${pair.second.take(190)}")
                 .setView(answer).setNegativeButton("SKIP") { _, _ -> index++; next() }
                 .setPositiveButton("SHOW REFERENCE") { _, _ ->
                     score++
@@ -1027,7 +1027,7 @@ class MainActivity : Activity() {
                 devanagariText.length > latinText.length * 1.15 -> devanagariText
                 latinText.isBlank() -> devanagariText
                 devanagariText.isBlank() -> latinText
-                else -> (latinText + "\\n" + devanagariText).lines().distinct().joinToString("\\n")
+                else -> (latinText + "\n" + devanagariText).lines().distinct().joinToString("\n")
             }
         } finally {
             latin.close()
