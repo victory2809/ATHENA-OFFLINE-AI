@@ -13,7 +13,7 @@ import android.widget.*
 import org.json.JSONArray
 
 class MainActivity : Activity() {
-    private val background = Color.rgb(8, 12, 22)
+    private val backgroundColor = Color.rgb(8, 12, 22)
     private val panel = Color.rgb(17, 25, 42)
     private val accent = Color.rgb(69, 145, 255)
     private lateinit var content: LinearLayout
@@ -43,7 +43,7 @@ class MainActivity : Activity() {
     private fun buildShell() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(backgroundColor)
             setPadding(dp(18), dp(22), dp(18), dp(12))
         }
         val header = TextView(this).apply {
