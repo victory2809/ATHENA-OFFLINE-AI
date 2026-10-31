@@ -9,8 +9,12 @@ android {
         applicationId = "com.athena.offline"
         minSdk = 23
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 9
+        versionName = "0.9.0"
+    }
+    ndk { abiFilters += "arm64-v8a" }
+    externalNativeBuild {
+        cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" }
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {
