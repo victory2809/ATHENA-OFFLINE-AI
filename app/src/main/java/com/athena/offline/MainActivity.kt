@@ -766,7 +766,7 @@ class MainActivity : Activity() {
             }
         }
         return candidates.sortedByDescending { it.first }.take(3)
-            .map { "[Source: ${it.second}]\\n${it.third}" }
+            .map { "[Source: ${it.second}]\n${it.third}" }
     }
 
     private fun askOfflineAi(profile: String?) {
