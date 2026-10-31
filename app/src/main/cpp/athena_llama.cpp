@@ -88,7 +88,7 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
     if (!g_model) return JNI_FALSE;
     auto cp = llama_context_default_params();
     cp.n_ctx = 256;
-    cp.n_batch = 16;
+    cp.n_batch = 256;
     cp.n_ubatch = 8;
     cp.n_threads = 2;
     cp.n_threads_batch = 2;
@@ -96,32 +96,6 @@ Java_com_athena_offline_NativeLlama_nativeLoad(JNIEnv *env, jobject, jstring jpa
     if (!g_ctx) { llama_model_free(g_model); g_model = nullptr; return JNI_FALSE; }
     g_vocab = llama_model_get_vocab(g_model);
     return JNI_TRUE;
-}
-
-// Decode tokens in bounded micro-batches. The context is configured with
-// n_batch=16 and n_ubatch=8; passing a whole prompt as one batch can exceed
-// those limits and crash some mobile builds inside llama_decode().
-static int decode_tokens(llama_context *ctx, const llama_token *tokens, int count, int start_pos) {
-    const int micro_batch = 8;
-    for (int offset = 0; offset < count; offset += micro_batch) {
-        const int chunk = std::min(micro_batch, count - offset);
-        llama_batch batch = llama_batch_init(chunk, 0, 1);
-        if (!batch.token || !batch.pos || !batch.n_seq_id || !batch.seq_id || !batch.logits) {
-            llama_batch_free(batch);
-            return -1;
-        }
-        for (int i = 0; i < chunk; ++i) {
-            batch.token[i] = tokens[offset + i];
-            batch.pos[i] = start_pos + offset + i;
-            batch.n_seq_id[i] = 1;
-            batch.seq_id[i][0] = 0;
-            batch.logits[i] = (i == chunk - 1) ? 1 : 0;
-        }
-        const int result = llama_decode(ctx, batch);
-        llama_batch_free(batch);
-        if (result != 0) return result;
-    }
-    return 0;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -151,7 +125,10 @@ Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring
     }
     tokens.resize(n);
     write_stage(stage_path, "before_prompt_decode");
-    const int prompt_result = decode_tokens(g_ctx, tokens.data(), n, 0);
+    // n_batch is the logical maximum (256); n_ubatch=8 makes llama.cpp
+    // split this batch internally into small physical batches for mobile RAM.
+    llama_batch prompt_batch = llama_batch_get_one(tokens.data(), n);
+    const int prompt_result = llama_decode(g_ctx, prompt_batch);
     if (prompt_result != 0) {
         write_stage(stage_path, "prompt_decode_returned_error");
         return from_utf8(env, "Prompt processing failed (native code " + std::to_string(prompt_result) + "). Try a shorter question.");
@@ -172,7 +149,8 @@ Java_com_athena_offline_NativeLlama_nativeGenerate(JNIEnv *env, jobject, jstring
         int len = llama_token_to_piece(g_vocab, token, piece, sizeof(piece), 0, true);
         if (len > 0) output.append(piece, (size_t)len);
         write_stage(stage_path, "decoding_generated_token");
-        if (decode_tokens(g_ctx, &token, 1, n + i) != 0) {
+        llama_batch token_batch = llama_batch_get_one(&token, 1);
+        if (llama_decode(g_ctx, token_batch) != 0) {
             write_stage(stage_path, "generated_token_decode_error");
             break;
         }
