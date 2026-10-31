@@ -9,8 +9,8 @@ android {
         applicationId = "com.athena.offline"
         minSdk = 23
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {
@@ -21,4 +21,5 @@ android {
 }
 dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
