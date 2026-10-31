@@ -181,6 +181,7 @@ class MainActivity : Activity() {
             val docs = documents(name)
             card(name, "${docs.length()} document(s) stored locally.")
             action("IMPORT PDF / TXT INTO $name") { pickDocument(name) }
+            action("＋ PASTE TRANSCRIPT / AI NOTES") { pasteText(name) }
             for (i in 0 until docs.length()) {
                 val doc = docs.optJSONObject(i) ?: continue
                 val docName = doc.optString("name", "Document")
@@ -293,15 +294,84 @@ class MainActivity : Activity() {
                 }
             }
         }
-        val extracted = if (isPdf) extractPdf(sourceFile) else sourceFile.readText(Charsets.UTF_8)
-        require(extracted.isNotBlank()) { "No readable text found. Scanned PDFs need OCR, which is not included yet." }
-        val textFile = File(dir, "${id}_extracted.txt")
-        textFile.writeText(extracted, Charsets.UTF_8)
-        val pages = if (isPdf) countPdfPages(sourceFile) else 1
+        var textFile: File? = null
+        try {
+            val extracted = if (isPdf) extractPdf(sourceFile) else sourceFile.readText(Charsets.UTF_8)
+            require(extracted.isNotBlank()) {
+                "This PDF appears scanned/image-only and has no selectable text layer. OCR is planned; meanwhile paste its transcript or OCR text."
+            }
+            textFile = File(dir, "${id}_extracted.txt")
+            textFile.writeText(extracted, Charsets.UTF_8)
+            val pages = if (isPdf) countPdfPages(sourceFile) else 1
+            val docs = documents(profile)
+            docs.put(JSONObject().apply {
+                put("id", id); put("name", originalName); put("source", sourceFile.name)
+                put("text", textFile.name); put("pages", pages); put("characters", extracted.length)
+            })
+            saveDocuments(profile, docs)
+        } catch (e: Exception) {
+            sourceFile.delete()
+            textFile?.delete()
+            throw e
+        }
+    }
+
+
+    private fun pasteText(profile: String) {
+        val titleInput = EditText(this).apply {
+            hint = "Title (e.g. YouTube: DBMS Normalization)"
+            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); singleLine = true
+        }
+        val bodyInput = EditText(this).apply {
+            hint = "Paste a YouTube transcript, AI explanation, class notes, or your own text..."
+            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            textSize = 14f; gravity = Gravity.TOP or Gravity.START
+            minLines = 9; maxLines = 16
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(panel, 12, Color.rgb(55, 77, 112))
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(4))
+            addView(titleInput, LinearLayout.LayoutParams(-1, dp(52)))
+            addView(bodyInput, LinearLayout.LayoutParams(-1, dp(230)).apply { topMargin = dp(10) })
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Add text to $profile")
+            .setMessage("Paste a transcript, another AI's response, or your notes. Saved locally on this device.")
+            .setView(form).setNegativeButton("CANCEL", null)
+            .setPositiveButton("SAVE TO LIBRARY", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleInput.text.toString().trim().ifBlank { "Pasted study notes" }
+                val body = bodyInput.text.toString().trim()
+                if (body.isBlank()) {
+                    Toast.makeText(this, "Paste some text first.", Toast.LENGTH_SHORT).show()
+                } else {
+                    try {
+                        savePastedText(profile, title, body)
+                        dialog.dismiss()
+                        Toast.makeText(this, "Text saved to $profile.", Toast.LENGTH_LONG).show()
+                        showKnowledge()
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Could not save text: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun savePastedText(profile: String, title: String, body: String) {
+        require(body.length <= 2_000_000) { "Text is too large (maximum 2 million characters)." }
+        val id = System.currentTimeMillis().toString() + "_" + (0..9999).random()
+        val textFile = File(profileDir(profile), "${id}_pasted.txt")
+        textFile.writeText(body, Charsets.UTF_8)
         val docs = documents(profile)
         docs.put(JSONObject().apply {
-            put("id", id); put("name", originalName); put("source", sourceFile.name)
-            put("text", textFile.name); put("pages", pages); put("characters", extracted.length)
+            put("id", id); put("name", title); put("source", textFile.name)
+            put("text", textFile.name); put("pages", 1); put("characters", body.length)
+            put("kind", "pasted_text")
         })
         saveDocuments(profile, docs)
     }
