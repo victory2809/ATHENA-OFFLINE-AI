@@ -812,7 +812,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this).setTitle("Ask offline ATHENA").setView(input)
             .setNegativeButton("CANCEL", null).setPositiveButton("GENERATE") { _, _ ->
-                val question = input.text.toString().trim().take(1200)
+                val question = input.text.toString().trim().take(400)
                 if (question.isBlank()) return@setPositiveButton
                 if (!modelFile().exists()) {
                     AlertDialog.Builder(this).setMessage("Download and load the offline model first.")
@@ -833,20 +833,20 @@ class MainActivity : Activity() {
     private fun generateOfflineAnswer(profile: String?, question: String) {
         val evidence = retrieveStudyContext(profile, question)
         val contextText = if (evidence.isEmpty()) "No matching passages were found in the selected notes. Answer from general model knowledge and clearly state that no note citation is available."
-            else evidence.joinToString("\n\n").take(700)
+            else evidence.joinToString("\n\n").take(320)
         chatHistory.clear()
         val savedHistory = try { JSONArray(prefs.getString(chatHistoryKey(profile), "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
         for (i in 0 until savedHistory.length()) {
             val turn = savedHistory.optJSONObject(i) ?: continue
             chatHistory.add(turn.optString("q") to turn.optString("a"))
         }
-        val historyText = chatHistory.takeLast(1).joinToString("\n") { "User: ${it.first.take(180)}\nATHENA: ${it.second.take(180)}" }
-        val learnerContext = prefs.getString("learner_personalization", "")?.take(700).orEmpty()
+        val historyText = "" // Keep the first on-device inference small and predictable.
+        val learnerContext = prefs.getString("learner_personalization", "")?.take(180).orEmpty()
         val prompt = "<|im_start|>system\nYou are ATHENA, a careful student study tutor. Explain clearly and simply. For coding, give runnable examples and explain each step. Never invent citations. Use provided excerpts when relevant. If unsure, admit it.\n\nLEARNER PROFILE:\n$learnerContext\n\nSTUDY EXCERPTS:\n$contextText\n\nRECENT CHAT:\n$historyText<|im_end|>\n<|im_start|>user\n$question<|im_end|>\n<|im_start|>assistant\n"
-        reset("ATHENA is thinking…", "Generating your answer locally. Keep ATHENA open; the first answer may take time.")
+        reset("ATHENA is thinking…", "Running a low-memory local answer. Keep this screen open; do not press Back.")
         Thread {
             try {
-                val answer = nativeEngine.nativeGenerate(prompt, 96).ifBlank { "ATHENA could not generate an answer. Try a shorter question." }
+                val answer = nativeEngine.nativeGenerate(prompt, 48).ifBlank { "ATHENA could not generate an answer. Try a shorter question." }
                 chatHistory.add(question to answer)
                 val saved = JSONArray()
                 chatHistory.takeLast(8).forEach { turn -> saved.put(JSONObject().put("q", turn.first).put("a", turn.second)) }
